@@ -1,8 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from '@/lib/config';
-import { ArchPlan } from '../types';
+import { ArchPlan } from '@/types';
 
 const client = new Anthropic({ apiKey: config.anthropic.api_key });
+
 const SYSTEM_PROMPT = `You are a Senior DevOps Engineer specialising in HashiCorp Terraform.
 Given a JSON architecture plan, generate complete, ready-to-run Terraform HCL code.
 
@@ -19,7 +20,6 @@ export async function runEngineer(
   const messages: Anthropic.MessageParam[] = [];
 
   if (previousError) {
-    // Retry: include the error so the agent can fix it
     messages.push({
       role: 'user',
       content: `Architecture plan: ${JSON.stringify(plan, null, 2)}\n\nPrevious attempt was REJECTED with error: ${previousError}\n\nPlease fix the issues and regenerate the complete Terraform code.`,
