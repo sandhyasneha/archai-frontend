@@ -22,16 +22,22 @@ Format:
 export async function runArchitect(prompt: string): Promise<ArchPlan> {
   const response = await client.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 1000,
+    max_tokens: 2000,
     system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: prompt }],
-  });
+  })
 
-  const text = (response.content[0] as { type: string; text: string }).text.trim();
+  const text = (response.content[0] as { type: string; text: string }).text.trim()
+
+  // Extract JSON even if there's surrounding text
+  const jsonMatch = text.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) {
+    throw new Error(`Architect agent returned no JSON: ${text.slice(0, 200)}`)
+  }
 
   try {
-    return JSON.parse(text) as ArchPlan;
+    return JSON.parse(jsonMatch[0]) as ArchPlan
   } catch {
-    throw new Error(`Architect agent returned invalid JSON: ${text.slice(0, 200)}`);
+    throw new Error(`Architect agent returned invalid JSON: ${jsonMatch[0].slice(0, 200)}`)
   }
 }
