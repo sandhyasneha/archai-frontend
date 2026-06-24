@@ -1,6 +1,7 @@
+
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from '@/lib/config';
-import { ArchPlan } from '../types';
+import { ArchPlan } from '@/types';
 
 const client = new Anthropic({ apiKey: config.anthropic.api_key });
 
