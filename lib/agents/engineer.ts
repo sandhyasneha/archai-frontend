@@ -3,7 +3,6 @@ import { config } from '@/lib/config';
 import { ArchPlan } from '../types';
 
 const client = new Anthropic({ apiKey: config.anthropic.api_key });
-
 const SYSTEM_PROMPT = `You are a Senior DevOps Engineer specialising in HashiCorp Terraform.
 Given a JSON architecture plan, generate complete, ready-to-run Terraform HCL code.
 
