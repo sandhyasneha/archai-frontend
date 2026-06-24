@@ -1,6 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from '@/lib/config';
-const client = new Anthropic({ apiKey: config.anthropic.api_key });
 
 const SYSTEM_PROMPT = `You are an automated static analysis tool for Terraform HCL files.
 Audit the provided Terraform code for:
