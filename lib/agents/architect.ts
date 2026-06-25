@@ -9,14 +9,12 @@ const SYSTEM_PROMPT = `You are a cloud architect. Output ONLY a JSON object, not
 STRICT RULES:
 - Maximum 4 resources total
 - Each "purpose" must be under 6 words
-- Output must fit in 300 tokens
 - No markdown, no explanation, no extra text
 
 Example output:
 {"provider":"aws","region":"us-east-1","resources":[{"type":"vpc","purpose":"isolated network with subnets"},{"type":"ecs_cluster","purpose":"run containerised services"},{"type":"rds_postgres","purpose":"managed relational database"},{"type":"alb","purpose":"application load balancer"}]}`;
 
 export async function runArchitect(prompt: string): Promise<ArchPlan> {
-  // Truncate prompt to avoid large inputs
   const truncatedPrompt = prompt.slice(0, 300)
 
   const response = await client.messages.create({
@@ -28,13 +26,38 @@ export async function runArchitect(prompt: string): Promise<ArchPlan> {
 
   const raw = (response.content[0] as { type: string; text: string }).text.trim()
 
-  // Clean any markdown fences
   const cleaned = raw
     .replace(/```json/gi, '')
     .replace(/```/g, '')
     .trim()
 
-  // Try to find and parse JSON
   const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
+
   if (!jsonMatch) {
-    throw new
+    return {
+      provider: 'aws',
+      region: 'us-east-1',
+      resources: [
+        { type: 'vpc', purpose: 'isolated network with subnets' },
+        { type: 'ecs_cluster', purpose: 'run containerised services' },
+        { type: 'rds_postgres', purpose: 'managed relational database' },
+        { type: 'alb', purpose: 'application load balancer' },
+      ],
+    }
+  }
+
+  let jsonStr = jsonMatch[0]
+
+  try {
+    const parsed = JSON.parse(jsonStr) as ArchPlan
+    if (parsed.resources?.length > 4) {
+      parsed.resources = parsed.resources.slice(0, 4)
+    }
+    return parsed
+  } catch {
+    const openBraces = (jsonStr.match(/\{/g) || []).length
+    const closeBraces = (jsonStr.match(/\}/g) || []).length
+    const openBrackets = (jsonStr.match(/\[/g) || []).length
+    const closeBrackets = (jsonStr.match(/\]/g) || []).length
+
+    jsonStr = jsonStr.replace(/,\s*\{[^}]*$/, '')
