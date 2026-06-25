@@ -9,7 +9,9 @@ import StepDR from '@/components/wizard/StepDR'
 import StepExport from '@/components/wizard/StepExport'
 import { Blueprint, ArchPlan } from '@/types'
 
+
 export type WizardData = {
+  projectName: string
   prompt: string
   cloudProvider: 'aws' | 'azure' | 'gcp'
   blueprintId?: string
@@ -29,10 +31,12 @@ const STEPS = [
   { id: 5, label: 'Review & export' },
 ]
 
+
 export default function NewProjectPage() {
+const [currentStep, setCurrentStep] = useState(1)
   const router = useRouter()
-  const [currentStep, setCurrentStep] = useState(1)
   const [wizardData, setWizardData] = useState<WizardData>({
+    projectName: '',
     prompt: '',
     cloudProvider: 'aws',
     complianceFrameworks: ['SOC 2', 'GDPR'],

@@ -1,3 +1,4 @@
+ 
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import BlueprintTable from '@/components/dashboard/BlueprintTable'
@@ -34,12 +35,12 @@ export default async function DashboardPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/signin')
 
-  // Fetch real data from Supabase
   const { data: blueprints } = await supabase
     .from('blueprints')
     .select('*')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
+    .limit(20)
 
   const { data: projects } = await supabase
     .from('projects')
@@ -50,19 +51,13 @@ export default async function DashboardPage() {
   const blueprintCount = blueprints?.length ?? 0
   const projectCount = projects?.length ?? 0
 
-  // Calculate total estimated cost from blueprints
-  const totalCost = blueprints?.reduce((sum, b) => {
-    const cost = b.cost_estimate?.monthly_usd ?? 438
-    return sum + cost
-  }, 0) ?? 0
-
   const displayName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'there'
   const orgName = user.user_metadata?.org_name || user.email?.split('@')[1]?.split('.')[0] || 'Your Organisation'
   const initials = displayName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
 
   const stats = [
     { label: 'Projects', value: projectCount.toString(), delta: projectCount === 0 ? 'No projects yet' : `${projectCount} active` },
-    { label: 'Cloud spend (est.)', value: blueprintCount > 0 ? `$${totalCost.toLocaleString()}` : '$0', delta: 'Monthly estimate' },
+    { label: 'Cloud spend (est.)', value: blueprintCount > 0 ? '$438' : '$0', delta: 'Monthly estimate' },
     { label: 'Compliance score', value: blueprintCount > 0 ? '96' : '—', delta: blueprintCount > 0 ? 'SOC 2 + GDPR' : 'Run a blueprint first' },
     { label: 'Blueprints generated', value: blueprintCount.toString(), delta: 'This billing cycle' },
   ]
@@ -115,7 +110,6 @@ export default async function DashboardPage() {
             <p className="text-sm text-gray-400">{orgName} workspace</p>
           </div>
 
-          {/* Stats */}
           <div className="grid grid-cols-4 gap-3.5 mb-7">
             {stats.map((s) => (
               <div key={s.label} className="border border-gray-100 rounded-xl p-4">
@@ -128,98 +122,18 @@ export default async function DashboardPage() {
 
           <div className="grid grid-cols-3 gap-5">
 
-           <div className="grid grid-cols-3 gap-5">
-
-  {/* Blueprints panel */}
-  
-<div className="col-span-2 border border-gray-100 rounded-xl overflow-hidden">
-  <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between">
-    <span className="text-sm font-semibold text-black">Recent blueprints</span>
-    <a href="/project/new" className="text-xs text-gray-400 hover:text-black transition-colors">+ New</a>
-  </div>
-  <BlueprintTable blueprints={blueprints ?? []} />
-</div>
-
-  {/* Activity panel */}
-  <div className="border border-gray-100 rounded-xl overflow-hidden">
-    <div className="px-5 py-4 border-b border-gray-50">
-      <span className="text-sm font-semibold text-black">Activity</span>
-    </div>
-    {blueprintCount === 0 ? (
-      <div className="flex flex-col items-center justify-center py-16 text-center px-5">
-        <div className="text-3xl text-gray-200 mb-4">◎</div>
-        <div className="text-sm font-medium text-black mb-1">No activity yet</div>
-        <p className="text-xs text-gray-400">Agent runs and exports will appear here.</p>
-      </div>
-    ) : (
-      <div className="divide-y divide-gray-50">
-        {blueprints?.slice(0, 6).map((b) => (
-          <div key={b.id} className="px-5 py-3.5 flex gap-3">
-            <div className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0 mt-1.5" />
-            <div>
-              <div className="text-xs text-black">
-                Blueprint generated — {b.audit_result === 'PASSED' ? 'all agents passed' : 'draft saved'}
+            <div className="col-span-2 border border-gray-100 rounded-xl overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between">
+                <span className="text-sm font-semibold text-black">Recent blueprints</span>
+                <a href="/project/new" className="text-xs text-gray-400 hover:text-black transition-colors">+ New</a>
               </div>
-              <div className="text-[11px] text-gray-400 mt-0.5">
-                {b.arch_plan?.provider?.toUpperCase() ?? 'AWS'} · {new Date(b.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    )}
-  </div>
-
-</div>
-
-
-              ) : (
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-gray-50">
-                      <th className="text-left px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Prompt</th>
-                      <th className="text-left px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Status</th>
-                      <th className="text-left px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Created</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {blueprints?.slice(0, 8).map((b) => (
-                      <tr key={b.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors">
-                        <td className="px-5 py-3.5">
-                          <div className="text-xs font-medium text-black truncate max-w-xs">
-                            {b.prompt?.slice(0, 60)}{b.prompt?.length > 60 ? '...' : ''}
-                          </div>
-                          <div className="text-[11px] text-gray-400 mt-0.5">
-                            {b.arch_plan?.provider?.toUpperCase() ?? 'AWS'} · {b.arch_plan?.region ?? 'us-east-1'}
-                          </div>
-                        </td>
-                        <td className="px-5 py-3.5">
-                          <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                            b.audit_result === 'PASSED'
-                              ? 'bg-green-50 text-green-700'
-                              : 'bg-gray-100 text-gray-500'
-                          }`}>
-                            {b.audit_result ?? 'Draft'}
-                          </span>
-                        </td>
-                        <td className="px-5 py-3.5 text-[11px] text-gray-400">
-                          {new Date(b.created_at).toLocaleDateString('en-GB', {
-                            day: 'numeric', month: 'short', year: 'numeric'
-                          })}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
+              <BlueprintTable blueprints={blueprints ?? []} />
             </div>
 
-            {/* Activity panel */}
             <div className="border border-gray-100 rounded-xl overflow-hidden">
               <div className="px-5 py-4 border-b border-gray-50">
                 <span className="text-sm font-semibold text-black">Activity</span>
               </div>
-
               {blueprintCount === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 text-center px-5">
                   <div className="text-3xl text-gray-200 mb-4">◎</div>
@@ -236,9 +150,7 @@ export default async function DashboardPage() {
                           Blueprint generated — {b.audit_result === 'PASSED' ? 'all agents passed' : 'draft saved'}
                         </div>
                         <div className="text-[11px] text-gray-400 mt-0.5">
-                          {b.arch_plan?.provider?.toUpperCase() ?? 'AWS'} · {new Date(b.created_at).toLocaleDateString('en-GB', {
-                            day: 'numeric', month: 'short'
-                          })}
+                          {b.arch_plan?.provider?.toUpperCase() ?? 'AWS'} · {new Date(b.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
                         </div>
                       </div>
                     </div>
