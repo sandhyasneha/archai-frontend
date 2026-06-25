@@ -257,3 +257,87 @@ export default function StepInfra({ data, updateData, onNext }: Props) {
                   </span>
                 </div>
                 {i < agentDots.length - 1 && (
+                  <span className="text-gray-200 text-xs">→</span>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div className="h-1 bg-gray-200 rounded overflow-hidden mb-2">
+            <div
+              className="h-full bg-black rounded transition-all duration-500"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <p className="text-xs text-gray-500">{pipelineMsg}</p>
+        </div>
+      )}
+
+      {/* Blueprint output */}
+      {blueprintReady && (
+        <div className="mt-5 grid grid-cols-2 gap-4">
+          <div className="border border-gray-100 rounded-lg overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-gray-100 bg-gray-50">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                Network topology
+              </span>
+            </div>
+            <div className="p-4">
+              <svg viewBox="0 0 300 200" width="100%" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <marker id="arr" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+                    <path d="M0,0 L6,3 L0,6 Z" fill="#ccc"/>
+                  </marker>
+                </defs>
+                <rect x="90" y="8" width="120" height="26" rx="4" fill="#f4f4f4" stroke="#ccc" strokeWidth="1"/>
+                <text x="150" y="25" textAnchor="middle" fontSize="10" fill="#333">CloudFront CDN</text>
+                <line x1="150" y1="34" x2="150" y2="52" stroke="#ccc" strokeWidth="1" markerEnd="url(#arr)"/>
+                <rect x="80" y="54" width="140" height="26" rx="4" fill="#f4f4f4" stroke="#0a0a0a" strokeWidth="1.5"/>
+                <text x="150" y="71" textAnchor="middle" fontSize="10" fill="#0a0a0a" fontWeight="600">Load Balancer</text>
+                <line x1="115" y1="80" x2="75" y2="104" stroke="#ccc" strokeWidth="1" markerEnd="url(#arr)"/>
+                <line x1="185" y1="80" x2="225" y2="104" stroke="#ccc" strokeWidth="1" markerEnd="url(#arr)"/>
+                <rect x="15" y="106" width="110" height="26" rx="4" fill="#f4f4f4" stroke="#ccc" strokeWidth="1"/>
+                <text x="70" y="123" textAnchor="middle" fontSize="10" fill="#333">ECS us-east-1a</text>
+                <rect x="175" y="106" width="110" height="26" rx="4" fill="#f4f4f4" stroke="#ccc" strokeWidth="1"/>
+                <text x="230" y="123" textAnchor="middle" fontSize="10" fill="#333">ECS us-east-1b</text>
+                <line x1="70" y1="132" x2="120" y2="156" stroke="#ccc" strokeWidth="1" markerEnd="url(#arr)"/>
+                <line x1="230" y1="132" x2="180" y2="156" stroke="#ccc" strokeWidth="1" markerEnd="url(#arr)"/>
+                <rect x="90" y="158" width="120" height="26" rx="4" fill="#f4f4f4" stroke="#0a0a0a" strokeWidth="1.5"/>
+                <text x="150" y="175" textAnchor="middle" fontSize="10" fill="#0a0a0a" fontWeight="600">RDS PostgreSQL</text>
+              </svg>
+            </div>
+          </div>
+
+          <div className="border border-gray-100 rounded-lg overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                Terraform output
+              </span>
+              <button
+                onClick={() => navigator.clipboard.writeText(data.terraformCode || '')}
+                className="text-[10px] text-gray-400 hover:text-black transition-colors"
+              >
+                copy
+              </button>
+            </div>
+            <div className="p-4 bg-gray-50 overflow-auto max-h-48">
+              <pre className="text-[11px] text-gray-600 font-mono leading-relaxed whitespace-pre-wrap">
+                {data.terraformCode?.slice(0, 600)}
+                {(data.terraformCode?.length || 0) > 600 ? '\n...(truncated)' : ''}
+              </pre>
+            </div>
+          </div>
+
+          <div className="col-span-2 flex justify-end mt-2">
+            <button
+              onClick={onNext}
+              className="px-5 py-2.5 bg-black text-white rounded-md text-sm font-medium hover:opacity-85 transition-opacity"
+            >
+              Next: security audit →
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
