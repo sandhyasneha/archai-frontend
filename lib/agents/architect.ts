@@ -1,43 +1,40 @@
-
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from '@/lib/config';
 import { ArchPlan } from '@/types';
 
 const client = new Anthropic({ apiKey: config.anthropic.api_key });
 
-const SYSTEM_PROMPT = `You are an expert Enterprise Cloud Architect.
-Analyse the infrastructure request and break it down into required cloud resources.
-Output ONLY a valid JSON object — no explanations, no markdown, no code fences.
+const SYSTEM_PROMPT = `You are a cloud architect. Output ONLY a JSON object, nothing else.
 
-Format:
-{
-  "provider": "aws",
-  "region": "us-east-1",
-  "resources": [
-    { "type": "vpc", "purpose": "isolated network with public and private subnets" },
-    { "type": "ecs_cluster", "purpose": "run containerised microservices" }
-  ]
-}`;
+STRICT RULES:
+- Maximum 4 resources total
+- Each "purpose" must be under 6 words
+- Output must fit in 300 tokens
+- No markdown, no explanation, no extra text
+
+Example output:
+{"provider":"aws","region":"us-east-1","resources":[{"type":"vpc","purpose":"isolated network with subnets"},{"type":"ecs_cluster","purpose":"run containerised services"},{"type":"rds_postgres","purpose":"managed relational database"},{"type":"alb","purpose":"application load balancer"}]}`;
 
 export async function runArchitect(prompt: string): Promise<ArchPlan> {
+  // Truncate prompt to avoid large inputs
+  const truncatedPrompt = prompt.slice(0, 300)
+
   const response = await client.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 2000,
+    max_tokens: 500,
     system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: prompt }],
+    messages: [{ role: 'user', content: truncatedPrompt }],
   })
 
-  const text = (response.content[0] as { type: string; text: string }).text.trim()
+  const raw = (response.content[0] as { type: string; text: string }).text.trim()
 
-  // Extract JSON even if there's surrounding text
-  const jsonMatch = text.match(/\{[\s\S]*\}/)
+  // Clean any markdown fences
+  const cleaned = raw
+    .replace(/```json/gi, '')
+    .replace(/```/g, '')
+    .trim()
+
+  // Try to find and parse JSON
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
   if (!jsonMatch) {
-    throw new Error(`Architect agent returned no JSON: ${text.slice(0, 200)}`)
-  }
-
-  try {
-    return JSON.parse(jsonMatch[0]) as ArchPlan
-  } catch {
-    throw new Error(`Architect agent returned invalid JSON: ${jsonMatch[0].slice(0, 200)}`)
-  }
-}
+    throw new
