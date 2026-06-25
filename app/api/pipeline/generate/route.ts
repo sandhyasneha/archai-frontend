@@ -87,18 +87,23 @@ export async function POST(req: NextRequest) {
         if (!passed) { controller.close(); return }
 
         // Save to Supabase
-        const { data: blueprint } = await supabase
-          .from('blueprints')
-          .insert({
-            user_id: user.id,
-            org_id: user.user_metadata?.org_id ?? null,
-            prompt: input.prompt,
-            arch_plan: archPlan,
-            terraform_code: terraformCode,
-            audit_result: 'PASSED',
-          })
-          .select()
-          .single()
+        
+// Save to Supabase
+const { data: blueprint, error: insertError } = await supabase
+  .from('blueprints')
+  .insert({
+    user_id: user.id,
+    prompt: input.prompt,
+    arch_plan: archPlan,
+    terraform_code: terraformCode,
+    audit_result: 'PASSED',
+  })
+  .select()
+  .single()
+
+if (insertError) {
+  console.error('Blueprint save error:', insertError)
+}
 
         controller.enqueue(encode({
           agent: 'auditor',
