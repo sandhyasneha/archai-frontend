@@ -155,25 +155,20 @@ export default function StepInfra({ data, updateData, onNext }: Props) {
       </p>
 
       {/* Prompt input */}
-      <div className="mb-4">
-        <label className="block text-xs font-medium text-gray-600 mb-2">
-          System requirement
-        </label>
-        <textarea
-          ref={promptRef}
-          value={data.prompt}
-          onChange={e => updateData({ prompt: e.target.value })}
-          rows={4}
-          placeholder="e.g. Build a highly available SaaS backend for 50,000 active users with containerised microservices, a managed PostgreSQL database, Redis caching, and a CDN. Must support SOC 2 and GDPR compliance."
-          disabled={loading}
-          className={[
-            'w-full px-3 py-2.5 border rounded-lg text-sm outline-none transition-colors resize-none',
-            'focus:border-black disabled:opacity-60 disabled:cursor-not-allowed',
-            error && !data.prompt ? 'border-red-400' : 'border-gray-200'
-          ].join(' ')}
-        />
-        {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
-      </div>
+      
+<div className="mb-4">
+  <label className="block text-xs font-medium text-gray-600 mb-2">
+    Project name
+  </label>
+  <input
+    type="text"
+    value={data.projectName}
+    onChange={e => updateData({ projectName: e.target.value })}
+    placeholder="e.g. Payments API, Analytics Platform, DevOps Stack"
+    disabled={loading}
+    className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm outline-none focus:border-black transition-colors disabled:opacity-60"
+  />
+</div>
 
       {/* Cloud provider */}
       <div className="mb-5">

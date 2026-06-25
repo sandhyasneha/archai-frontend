@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import BlueprintTable from '@/components/dashboard/BlueprintTable'
 
 interface NavItemProps {
   icon: string
@@ -127,24 +128,51 @@ export default async function DashboardPage() {
 
           <div className="grid grid-cols-3 gap-5">
 
-            {/* Blueprints panel */}
-            <div className="col-span-2 border border-gray-100 rounded-xl overflow-hidden">
-              <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between">
-                <span className="text-sm font-semibold text-black">Recent blueprints</span>
-                <a href="/project/new" className="text-xs text-gray-400 hover:text-black transition-colors">+ New</a>
-              </div>
+           <div className="grid grid-cols-3 gap-5">
 
-              {blueprintCount === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 text-center px-8">
-                  <div className="text-3xl text-gray-200 mb-4">⌂</div>
-                  <div className="text-sm font-medium text-black mb-1">No blueprints yet</div>
-                  <p className="text-xs text-gray-400 max-w-xs mb-5">
-                    Create your first Greenfield project to generate a cloud architecture blueprint.
-                  </p>
-                  <a href="/project/new" className="px-4 py-2 bg-black text-white rounded-md text-xs font-medium hover:opacity-85 transition-opacity">
-                    Create first project
-                  </a>
-                </div>
+  {/* Blueprints panel */}
+  
+<div className="col-span-2 border border-gray-100 rounded-xl overflow-hidden">
+  <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between">
+    <span className="text-sm font-semibold text-black">Recent blueprints</span>
+    <a href="/project/new" className="text-xs text-gray-400 hover:text-black transition-colors">+ New</a>
+  </div>
+  <BlueprintTable blueprints={blueprints ?? []} />
+</div>
+
+  {/* Activity panel */}
+  <div className="border border-gray-100 rounded-xl overflow-hidden">
+    <div className="px-5 py-4 border-b border-gray-50">
+      <span className="text-sm font-semibold text-black">Activity</span>
+    </div>
+    {blueprintCount === 0 ? (
+      <div className="flex flex-col items-center justify-center py-16 text-center px-5">
+        <div className="text-3xl text-gray-200 mb-4">◎</div>
+        <div className="text-sm font-medium text-black mb-1">No activity yet</div>
+        <p className="text-xs text-gray-400">Agent runs and exports will appear here.</p>
+      </div>
+    ) : (
+      <div className="divide-y divide-gray-50">
+        {blueprints?.slice(0, 6).map((b) => (
+          <div key={b.id} className="px-5 py-3.5 flex gap-3">
+            <div className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0 mt-1.5" />
+            <div>
+              <div className="text-xs text-black">
+                Blueprint generated — {b.audit_result === 'PASSED' ? 'all agents passed' : 'draft saved'}
+              </div>
+              <div className="text-[11px] text-gray-400 mt-0.5">
+                {b.arch_plan?.provider?.toUpperCase() ?? 'AWS'} · {new Date(b.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    )}
+  </div>
+
+</div>
+
+
               ) : (
                 <table className="w-full">
                   <thead>
