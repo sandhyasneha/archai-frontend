@@ -11,6 +11,7 @@ const MAX_RETRIES = 3
 const Schema = z.object({
   prompt: z.string().min(10).max(2000),
   cloud_provider: z.enum(['aws', 'azure', 'gcp']),
+  project_name: z.string().optional(),
   project_id: z.string().uuid().optional(),
 })
 
