@@ -17,13 +17,26 @@ export default function StepExport({ data, onBack }: Props) {
     setTimeout(() => setCopied(false), 2000)
   }
 
+  function downloadTerraform() {
+    const blob = new Blob([data.terraformCode || ''], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `archai-${data.projectName || 'blueprint'}.tf`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
   const summary = [
+    { key: 'Project name', value: data.projectName || 'Untitled project' },
     { key: 'Project type', value: 'Greenfield — new cloud infrastructure' },
     { key: 'Cloud provider', value: `${data.cloudProvider.toUpperCase()} — us-east-1 (primary) · eu-west-1 (standby)` },
     { key: 'Compliance', value: data.complianceFrameworks.join(' · ') + ' — Score: 96/100' },
     { key: 'Security fixes', value: '5 findings auto-remediated by SecOps agent' },
     { key: 'Monthly cost', value: '$438/mo on-demand · $285/mo reserved (1-yr)' },
-    { key: 'DR strategy', value: `${data.drStrategy.replace('_', ' ')} · RTO < ${data.rtoMinutes}min · RPO < ${data.rpoMinutes}min` },
+    { key: 'DR strategy', value: `${data.drStrategy.replace(/_/g, ' ')} · RTO < ${data.rtoMinutes}min · RPO < ${data.rpoMinutes}min` },
     { key: 'Agents run', value: 'Gatekeeper · Architect · Engineer · Auditor — All passed' },
   ]
 
@@ -48,21 +61,23 @@ export default function StepExport({ data, onBack }: Props) {
       <div className="text-xs font-medium text-gray-600 mb-3">Export deliverables</div>
       <div className="grid grid-cols-3 gap-3 mb-6">
         <button
-          onClick={copyTerraform}
+          onClick={downloadTerraform}
           className="flex flex-col items-start p-5 border-2 border-black bg-black text-white rounded-lg hover:opacity-85 transition-opacity text-left"
         >
           <span className="text-xl mb-2">↓</span>
-          <span className="text-sm font-medium mb-1">{copied ? 'Copied!' : 'Copy Terraform'}</span>
+          <span className="text-sm font-medium mb-1">Download Terraform</span>
           <span className="text-xs opacity-60">Full .tf package, ready to run</span>
         </button>
 
         <button
-          onClick={() => alert('Connect GitHub in Settings first')}
+          onClick={copyTerraform}
           className="flex flex-col items-start p-5 border border-gray-100 rounded-lg hover:border-black transition-colors text-left"
         >
           <span className="text-xl mb-2 text-gray-400">⊙</span>
-          <span className="text-sm font-medium text-black mb-1">Push to GitHub</span>
-          <span className="text-xs text-gray-400">Commit to connected repo</span>
+          <span className="text-sm font-medium text-black mb-1">
+            {copied ? 'Copied!' : 'Copy Terraform'}
+          </span>
+          <span className="text-xs text-gray-400">Copy to clipboard</span>
         </button>
 
         <button
@@ -76,10 +91,16 @@ export default function StepExport({ data, onBack }: Props) {
       </div>
 
       <div className="flex gap-2">
-        <button onClick={onBack} className="px-5 py-2.5 border border-gray-200 text-black rounded-md text-sm hover:bg-gray-50 transition-colors">
+        <button
+          onClick={onBack}
+          className="px-5 py-2.5 border border-gray-200 text-black rounded-md text-sm hover:bg-gray-50 transition-colors"
+        >
           ← Back
         </button>
-        <a href="/dashboard" className="px-5 py-2.5 bg-black text-white rounded-md text-sm font-medium hover:opacity-85 transition-opacity">
+        
+         <a href="/dashboard"
+          className="px-5 py-2.5 bg-black text-white rounded-md text-sm font-medium hover:opacity-85 transition-opacity"
+        >
           Back to dashboard
         </a>
       </div>
