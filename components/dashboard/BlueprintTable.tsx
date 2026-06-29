@@ -23,23 +23,21 @@ interface Props {
 export default function BlueprintTable({ blueprints }: Props) {
   const [selected, setSelected] = useState<Blueprint | null>(null)
 
-  if (blueprints.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-16 text-center px-8">
-        <div className="text-3xl text-gray-200 mb-4">⌂</div>
-        <div className="text-sm font-medium text-black mb-1">No blueprints yet</div>
-        <p className="text-xs text-gray-400 max-w-xs mb-5">
-          Create your first Greenfield project to generate a cloud architecture blueprint.
-        </p>
-        
-          <a>href="/project/new"
-          className="px-4 py-2 bg-black text-white rounded-md text-xs font-medium hover:opacity-85 transition-opacity"
-        
-          Create first project
-        </a>
-      </div>
-    )
-  }
+ 
+if (blueprints.length === 0) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 text-center px-8">
+      <div className="text-3xl text-gray-200 mb-4">⌂</div>
+      <div className="text-sm font-medium text-black mb-1">No blueprints yet</div>
+      <p className="text-xs text-gray-400 max-w-xs mb-5">
+        Create your first Greenfield project to generate a cloud architecture blueprint.
+      </p>
+      <a href="/project/new" className="px-4 py-2 bg-black text-white rounded-md text-xs font-medium hover:opacity-85 transition-opacity">
+        Create first project
+      </a>
+    </div>
+  )
+}
 
   return (
     <>

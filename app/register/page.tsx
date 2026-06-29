@@ -60,17 +60,18 @@ export default function RegisterPage() {
     setLoading(true)
     setFormError('')
 
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
-        data: {
-          full_name: `${firstName} ${lastName}`,
-          org_name: orgName,
-        },
-      },
-    })
+    
+const { data, error } = await supabase.auth.signUp({
+  email,
+  password,
+  options: {
+    emailRedirectTo: `https://arch.nexplan.io/auth/callback`,
+    data: {
+      full_name: `${firstName} ${lastName}`,
+      org_name: orgName,
+    },
+  },
+})
 
     if (error) {
       setFormError(error.message)
