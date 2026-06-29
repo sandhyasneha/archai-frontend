@@ -60,11 +60,11 @@ export default function RegisterPage() {
     setLoading(true)
     setFormError('')
 
-    // Sign up with Supabase Auth
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
         data: {
           full_name: `${firstName} ${lastName}`,
           org_name: orgName,
@@ -79,21 +79,17 @@ export default function RegisterPage() {
     }
 
     if (data.user) {
-  router.push(`/verify?email=${encodeURIComponent(email)}`)
-  router.refresh()
-}
-
+      router.push(`/verify?email=${encodeURIComponent(email)}`)
+    }
+  }
 
   return (
     <div className="flex h-screen w-full">
-
-      {/* Left brand panel */}
-      <div className="w-[420px] flex-shrink-0 bg-[#0a0a0a] text-white flex flex-col justify-between p-10">
+      <div className="w-[380px] flex-shrink-0 bg-[#0a0a0a] text-white flex flex-col justify-between p-10">
         <div className="flex items-center gap-3">
           <div className="w-7 h-7 border border-white rounded flex items-center justify-center text-xs font-bold">A</div>
           <span className="text-sm font-semibold tracking-widest uppercase">ArchAI</span>
         </div>
-
         <div>
           <h1 className="text-3xl font-medium leading-tight tracking-tight mb-4">
             Infrastructure expertise, built in.
@@ -102,7 +98,6 @@ export default function RegisterPage() {
             Designed for engineering leads, DevOps teams, and CTOs who need production-grade cloud architecture without the consulting overhead.
           </p>
         </div>
-
         <div className="flex flex-col gap-3">
           {[
             'Organisation accounts only — keeps your data isolated and secure',
@@ -118,7 +113,6 @@ export default function RegisterPage() {
         </div>
       </div>
 
-      {/* Right form panel */}
       <div className="flex-1 flex items-center justify-center p-10 bg-white overflow-y-auto">
         <div className="w-full max-w-sm">
           <h2 className="text-2xl font-medium tracking-tight mb-1">Create account</h2>
@@ -126,15 +120,12 @@ export default function RegisterPage() {
             Organisation accounts only. Gmail, Yahoo, and personal domains are not permitted.
           </p>
 
-          {/* Org email badge */}
           <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-gray-50 border border-gray-100 rounded-full text-xs text-gray-500 mb-6">
             <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
             Business or organisation email required
           </div>
 
           <form onSubmit={handleRegister} className="flex flex-col gap-4">
-
-            {/* Name row */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1.5">First name</label>
@@ -158,7 +149,6 @@ export default function RegisterPage() {
               </div>
             </div>
 
-            {/* Email */}
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Organisation email</label>
               <input
@@ -166,14 +156,11 @@ export default function RegisterPage() {
                 value={email}
                 onChange={(e) => { setEmail(e.target.value); validateEmail(e.target.value) }}
                 placeholder="you@yourcompany.com"
-                className={`w-full px-3 py-2.5 border rounded-md text-sm outline-none transition-colors
-                  ${emailError ? 'border-red-400' : email && !emailError ? 'border-green-500' : 'border-gray-200'}
-                  focus:border-black`}
+                className={`w-full px-3 py-2.5 border rounded-md text-sm outline-none transition-colors focus:border-black ${emailError ? 'border-red-400' : email && !emailError ? 'border-green-500' : 'border-gray-200'}`}
               />
               {emailError && <p className="text-xs text-red-500 mt-1">{emailError}</p>}
             </div>
 
-            {/* Org name */}
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Organisation name</label>
               <input
@@ -185,7 +172,6 @@ export default function RegisterPage() {
               />
             </div>
 
-            {/* Password */}
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Password</label>
               <div className="relative">
@@ -204,7 +190,6 @@ export default function RegisterPage() {
                   {showPassword ? 'hide' : 'show'}
                 </button>
               </div>
-              {/* Strength bar */}
               {password && (
                 <div className="mt-1.5">
                   <div className="h-0.5 bg-gray-100 rounded overflow-hidden">
@@ -220,7 +205,6 @@ export default function RegisterPage() {
               )}
             </div>
 
-            {/* Terms */}
             <div className="flex items-start gap-2.5">
               <input
                 type="checkbox"
@@ -230,29 +214,21 @@ export default function RegisterPage() {
                 className="mt-0.5 w-3.5 h-3.5 cursor-pointer accent-black flex-shrink-0"
               />
               <label htmlFor="terms" className="text-xs text-gray-500 leading-relaxed cursor-pointer">
-                I agree to the{' '}
-                <span className="text-black underline">Terms of Service</span>
-                {' '}and{' '}
-                <span className="text-black underline">Privacy Policy</span>.
-                ArchAI processes data under GDPR-compliant infrastructure.
+                I agree to the <span className="text-black underline">Terms of Service</span> and <span className="text-black underline">Privacy Policy</span>. ArchAI processes data under GDPR-compliant infrastructure.
               </label>
             </div>
 
-            {/* Form error */}
             {formError && (
               <p className="text-xs text-red-500 bg-red-50 px-3 py-2 rounded-md">{formError}</p>
             )}
 
-            {/* Submit */}
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 bg-black text-white rounded-md text-sm font-medium
-                hover:opacity-85 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+              className="w-full py-2.5 bg-black text-white rounded-md text-sm font-medium hover:opacity-85 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {loading ? 'Creating account...' : 'Create account'}
             </button>
-
           </form>
 
           <p className="text-center text-sm text-gray-400 mt-6">
