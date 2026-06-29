@@ -35,6 +35,11 @@ export default async function DashboardPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/signin')
 
+// Block unverified users
+if (!user.email_confirmed_at) {
+  redirect(`/verify?email=${encodeURIComponent(user.email ?? '')}`)
+}
+
   const { data: blueprints } = await supabase
     .from('blueprints')
     .select('*')
