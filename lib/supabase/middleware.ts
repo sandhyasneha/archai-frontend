@@ -28,11 +28,21 @@ export async function updateSession(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
 
   // Protect all routes except auth pages
-  if (
-    !user &&
-    !request.nextUrl.pathname.startsWith('/signin') &&
-    !request.nextUrl.pathname.startsWith('/register')
-  ) {
+  
+
+if (
+  !user &&
+  !request.nextUrl.pathname.startsWith('/signin') &&
+  !request.nextUrl.pathname.startsWith('/register') &&
+  !request.nextUrl.pathname.startsWith('/verify') &&
+  !request.nextUrl.pathname.startsWith('/auth/callback')
+) {
+  const url = request.nextUrl.clone()
+  url.pathname = '/signin'
+  return NextResponse.redirect(url)
+}
+
+{
     const url = request.nextUrl.clone()
     url.pathname = '/signin'
     return NextResponse.redirect(url)

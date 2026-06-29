@@ -79,10 +79,10 @@ export default function RegisterPage() {
     }
 
     if (data.user) {
-      router.push('/dashboard')
-      router.refresh()
-    }
-  }
+  router.push(`/verify?email=${encodeURIComponent(email)}`)
+  router.refresh()
+}
+
 
   return (
     <div className="flex h-screen w-full">
