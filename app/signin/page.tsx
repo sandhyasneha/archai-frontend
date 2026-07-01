@@ -16,6 +16,8 @@ export default function SignInPage() {
   const [emailError, setEmailError] = useState('')
   const [formError, setFormError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [resetSent, setResetSent] = useState(false)
+  const [resetLoading, setResetLoading] = useState(false)
 
   function validateEmail(value: string): boolean {
     setEmailError('')
@@ -51,11 +53,33 @@ export default function SignInPage() {
     router.refresh()
   }
 
+
+
+async function handleForgotPassword() {
+  if (!email) {
+    setEmailError('Enter your email address first, then click forgot password.')
+    return
+  }
+  if (isPersonalDomain(email)) {
+    setEmailError('Please use your organisation email address.')
+    return
+  }
+  setResetLoading(true)
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: 'https://arch.nexplan.io/auth/reset-password',
+  })
+  setResetLoading(false)
+  if (error) setFormError(error.message)
+  else setResetSent(true)
+}
+
+
+
   return (
     <div className="flex h-screen w-full">
 
       {/* Left brand panel */}
-      <div className="w-[420px] flex-shrink-0 bg-[#0a0a0a] text-white flex flex-col justify-between p-10">
+      <div className="w-[380px] flex-shrink-0 bg-[#0a0a0a] ... text-white flex flex-col justify-between p-10">
         <div className="flex items-center gap-3">
           <div className="w-7 h-7 border border-white rounded flex items-center justify-center text-xs font-bold">A</div>
           <span className="text-sm font-semibold tracking-widest uppercase">ArchAI</span>
@@ -137,12 +161,14 @@ export default function SignInPage() {
               </div>
             </div>
 
-            {/* Forgot password */}
-            <div className="text-right -mt-2">
-              <span className="text-xs text-gray-400 cursor-pointer hover:text-black">
-                Forgot password?
-              </span>
-            </div>
+            <span
+  className="text-xs text-gray-400 cursor-pointer hover:text-black"
+  onClick={handleForgotPassword}
+>
+  {resetSent ? 'Reset link sent — check your email' : 'Forgot password?'}
+</span>
+
+
 
             {/* Form error */}
             {formError && (

@@ -32,11 +32,12 @@ export async function updateSession(request: NextRequest) {
 
 if (
   !user &&
-  !request.nextUrl.pathname.startsWith('/signin') &&
+  
+!request.nextUrl.pathname.startsWith('/signin') &&
   !request.nextUrl.pathname.startsWith('/register') &&
   !request.nextUrl.pathname.startsWith('/verify') &&
-  !request.nextUrl.pathname.startsWith('/auth/callback')
-) {
+  !request.nextUrl.pathname.startsWith('/auth/callback') &&
+  !request.nextUrl.pathname.startsWith('/auth/reset-password')) {
   const url = request.nextUrl.clone()
   url.pathname = '/signin'
   return NextResponse.redirect(url)
