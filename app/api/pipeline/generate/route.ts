@@ -35,6 +35,33 @@ export async function POST(req: NextRequest) {
   }
 
   const input = parsed.data
+
+  // Fetch user's knowledge base documents
+  let kbContext = ''
+  try {
+    const { data: kbFiles } = await supabase.storage
+      .from('knowledge-base')
+      .list(`${user.id}/`)
+
+    if (kbFiles && kbFiles.length > 0) {
+      const fileContents = await Promise.all(
+        kbFiles.slice(0, 5).map(async (file) => {
+          const { data } = await supabase.storage
+            .from('knowledge-base')
+            .download(`${user.id}/${file.name}`)
+          if (data) {
+            const text = await data.text()
+            return `=== ${file.name} ===\n${text.slice(0, 2000)}`
+          }
+          return ''
+        })
+      )
+      kbContext = fileContents.filter(Boolean).join('\n\n')
+    }
+  } catch {
+    kbContext = ''
+  }
+
   const now = () => new Date().toISOString()
 
   const stream = new ReadableStream({
@@ -54,7 +81,7 @@ export async function POST(req: NextRequest) {
 
         // Agent 1: Architect
         controller.enqueue(encode({ agent: 'architect', status: 'started', message: 'Building resource dependency plan...', timestamp: now() }))
-        const archPlan = await runArchitect(input.prompt)
+        const archPlan = await runArchitect(input.prompt, kbContext)
         controller.enqueue(encode({ agent: 'architect', status: 'completed', message: `Plan complete — ${archPlan.resources.length} resources identified on ${archPlan.provider.toUpperCase()}.`, payload: archPlan, timestamp: now() }))
 
         // Agent 2 + 3: Engineer + Auditor with retry
@@ -64,7 +91,7 @@ export async function POST(req: NextRequest) {
 
         for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
           controller.enqueue(encode({ agent: 'engineer', status: 'started', message: attempt === 1 ? 'Generating Terraform HCL...' : `Retry ${attempt}/${MAX_RETRIES} — fixing issues...`, timestamp: now() }))
-          terraformCode = await runEngineer(archPlan, lastError)
+          terraformCode = await runEngineer(archPlan, kbContext, lastError)
           controller.enqueue(encode({ agent: 'engineer', status: 'completed', message: 'Terraform code generated.', timestamp: now() }))
 
           controller.enqueue(encode({ agent: 'auditor', status: 'started', message: 'Running syntax and security audit...', timestamp: now() }))
@@ -88,23 +115,21 @@ export async function POST(req: NextRequest) {
         if (!passed) { controller.close(); return }
 
         // Save to Supabase
-        
-// Save to Supabase
-const { data: blueprint, error: insertError } = await supabase
-  .from('blueprints')
-  .insert({
-    user_id: user.id,
-    prompt: input.prompt,
-    arch_plan: archPlan,
-    terraform_code: terraformCode,
-    audit_result: 'PASSED',
-  })
-  .select()
-  .single()
+        const { data: blueprint, error: insertError } = await supabase
+          .from('blueprints')
+          .insert({
+            user_id: user.id,
+            prompt: input.prompt,
+            arch_plan: archPlan,
+            terraform_code: terraformCode,
+            audit_result: 'PASSED',
+          })
+          .select()
+          .single()
 
-if (insertError) {
-  console.error('Blueprint save error:', insertError)
-}
+        if (insertError) {
+          console.error('Blueprint save error:', insertError)
+        }
 
         controller.enqueue(encode({
           agent: 'auditor',
@@ -129,6 +154,6 @@ if (insertError) {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
-    },
+    }
   })
 }

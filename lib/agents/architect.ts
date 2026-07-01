@@ -28,13 +28,23 @@ function fixJson(str: string): string {
   return out
 }
 
-export async function runArchitect(prompt: string): Promise<ArchPlan> {
+
+
+
+export async function runArchitect(prompt: string, kbContext?: string): Promise<ArchPlan> {
+  const contextSection = kbContext
+    ? `\n\nORGANISATION STANDARDS (follow these exactly):\n${kbContext.slice(0, 1500)}`
+    : ''
+
+  const userMessage = `${prompt.slice(0, 300)}${contextSection}`
+
   const response = await client.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 500,
     system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: prompt.slice(0, 300) }],
+    messages: [{ role: 'user', content: userMessage }],
   })
+
   const raw = (response.content[0] as { type: string; text: string }).text.trim()
   const cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim()
   const start = cleaned.indexOf('{')
