@@ -32,6 +32,25 @@ export default function StepCost({ data, onNext, onBack }: Props) {
       </p>
 
       {/* Hero cost card */}
+
+{/* Disclaimer */}
+<div className="flex items-start gap-2.5 px-4 py-3 bg-amber-50 border border-amber-100 rounded-lg mb-5">
+  <span className="text-amber-500 text-sm flex-shrink-0">ⓘ</span>
+  <p className="text-xs text-amber-700 leading-relaxed">
+    These are indicative ballpark estimates based on AWS on-demand pricing. 
+    Actual costs may vary depending on your usage patterns, reserved instance 
+    discounts, data transfer, and region. Use the{' '}
+    <a href="https://calculator.aws/pricing/2/home" target="_blank" rel="noopener noreferrer" className="underline font-medium">
+      AWS Pricing Calculator
+    </a>
+    {' '}for precise quotes.
+  </p>
+</div>
+
+<div className="cost-sub text-xs text-gray-400 mt-1">
+  Estimated ballpark figure based on standard on-demand pricing. 
+  Actual costs may vary ±30% depending on usage, region, and reserved pricing.
+
       <div className="flex items-center justify-between p-5 border border-gray-100 rounded-lg mb-5">
         <div>
           <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1">
@@ -53,6 +72,7 @@ export default function StepCost({ data, onNext, onBack }: Props) {
           </div>
         </div>
       </div>
+</div>
 
       {/* Multi-cloud comparison */}
       <div className="grid grid-cols-3 gap-3 mb-5">
