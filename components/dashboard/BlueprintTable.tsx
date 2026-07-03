@@ -92,13 +92,19 @@ if (blueprints.length === 0) {
               </td>
               <td className="px-5 py-3.5">
                 <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                  <button
-                    onClick={() => setSelected(b)}
-                    className="text-[11px] text-gray-400 hover:text-black transition-colors px-2 py-1 rounded hover:bg-gray-100"
-                  >
-                    View
-                  </button>
-                  <button
+
+
+// Change the View button:
+<button
+  onClick={() => window.location.href = `/blueprint/${b.id}`}
+  className="text-[11px] text-gray-400 hover:text-black transition-colors px-2 py-1 rounded hover:bg-gray-100"
+>
+  View
+</button>
+
+
+
+                                   <button
                     onClick={() => {
                       const blob = new Blob([b.terraform_code || ''], { type: 'text/plain' })
                       const url = URL.createObjectURL(blob)

@@ -1,0 +1,7 @@
+git remote add origin https://github.com/sandhyasneha/trucktaxonline-chat
+git push -u origin main
+
+git remote add origin https://github.com/sandhyasneha/trucktaxonline-chat
+git push -u origin main
+
+git remote add origin https://github.com/sandhyasneha/trucktaxonline-chat.git

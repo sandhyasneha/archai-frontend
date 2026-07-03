@@ -1,0 +1,26 @@
+Let’s break it into 3 parts: Features → Pricing → Token cost control1. Features: What to add to ARCHAI v1.1 / v1.2You’ve got the 4 Gateways locked. Add these to make it "must-pay" vs "nice-to-have":LayerFeatureWhy it converts to paidTrustExplainability ModeAfter Terraform, show "Why we chose Fargate vs EC2" with citations to AWS Well-Architected. Claude is great at this.TrustPolicy-as-Code CheckRun Checkov or TFSec on generated TF. Show "12/15 CIS checks passed". This is your Security Gate proof.SpeedBlueprint LibraryPre-baked: "SOC2 SaaS", "HIPAA ML API", "D2C E-commerce". User clicks 1 button vs writing 5 paragraphs.Lock-inProject Versioning / Diff"v2 vs v1: +$340/mo because you added ElastiCache". Brownfield users will pay for this.OutputMulti-format ExportTerraform .zip + Mermaid .mmd + PDF Architecture Doc + CloudFormation/Terragrunt. One download = value.OutputDeployment Scriptterraform init && apply wrapper + backend.tf S3+DynamoDB state setup. SMBs get stuck here.Brownfield v2Account Read-only ScannerIAM Role → read AWS Config → auto-fill "Current State" → 4-Gate audit. This is your $200/mo tier.Skip for now: Multi-cloud 1-click deploy. Too many creds + support tickets. Generate code only first.2. Pricing: Free vs Paid - Monthly or YearlyYou’re B2B Dev/Platform teams + CTOs. They pay for time saved. Don’t underprice.Recommended Tiering:1. Free Tier - "Scout" 
+Goal: Hook, not host. 
+Limits: 3 Blueprints / month, 1 Cloud only, AWS only, No export, Watermarked PDF 
+Why: Let them see the 4-Gate report. They’ll hit the paywall on export.2. Pro - $39/mo or $390/yr [2 months free] 
+Target: Solo Dev, Startup CTO 
+Includes: 20 Blueprints/mo, All 3 clouds, Terraform + Diagram export, Cost + Security + DR gates, Email support 
+This is your volume tier. Price anchor = 1 hour of a consultant = $150. You’re 4x cheaper.3. Team - $149/mo or $1490/yr 
+Target: 5-20 person startups, Agencies 
+Includes: Unlimited Blueprints, Project Versioning + Diff, Blueprint Library, Policy-as-Code Checkov scan, Slack support, 1 Brownfield scan/mo 
+This is your main revenue tier.4. Enterprise - Custom 
+Target: 100+ employees, Regulated 
+Includes: VPC of ARCHAI, On-prem Claude via AWS Bedrock, Custom compliance packs: ISO27001, HIPAA, RBI, SSO/SAML 
+Price: $2k+/moBilling tip: Push Yearly hard. CAC is high in B2B. Offer 20% off yearly. 3. Token Cost Control: How to keep Claude cheapClaude 3.5 Sonnet is ∼$3/$15 per 1M in/out. A bad prompt = $0.40 per blueprint. Do this:1. Multi-Agent, but small context windows 
+Don’t send the whole convo to all 4 agents. 
+Agent 1: Infra → 2k tokens out → Agent 2: Security only gets the 300-line resource list, not the 5-paragraph prompt. 
+Saves ∼60% tokens vs 1 mega-prompt.2. Use claude-3-5-haiku for Gatekeepers 2,3,4 
+Haiku is ∼10x cheaper. Only Sonnet does the heavy lifting: Infra design + final TF generation. Haiku is fine for "CIS checklist pass/fail JSON".3. Cache + RAG, not re-infer 
+Vector DB of "AWS Well-Architected chunks", "CIS AWS v1.5 rules", "Graviton pricing". 
+Prompt = Requirement + top 5 RAG chunks. You’re not paying Claude to remember CIS from scratch every time.4. Structured Output = Fewer retries 
+Force JSON schema: {gate: "Cost", status: "FAIL", findings:[]}. 
+If Claude drifts, you reject and retry only that agent. Without schema, 1 bad TF file = $0.50 wasted.5. Streaming + Early Exit 
+If Security Gate = FAIL with "Public S3 bucket", stop. Don’t run Cost/DR/TF agents. Show user the fix first. Saves 3 LLM calls.Back-of-napkin math: With Haiku for 3 gates + Sonnet for 2 calls = ∼$0.06 per blueprint. 
+At $39/mo for 20 blueprints, your COGS = $1.20. 30x margin.My take: Ship Free + Pro first. The "4-Gate Report" is your viral loop. CTOs will screenshot the PDF.Which one do you want me to draft next? 
+1. The exact Claude system prompts for the 4 agents 
+2. The Pro vs Team feature matrix landing page copy 
+3. Token routing code: Sonnet vs Haiku logic
