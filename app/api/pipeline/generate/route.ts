@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
 
         // Agent 1: Architect
         controller.enqueue(encode({ agent: 'architect', status: 'started', message: 'Building resource dependency plan...', timestamp: now() }))
-        const archPlan = await runArchitect(input.prompt, kbContext)
+        const archPlan = await runArchitect(input.prompt, kbContext, input.cloud_provider)
         controller.enqueue(encode({ agent: 'architect', status: 'completed', message: `Plan complete — ${archPlan.resources.length} resources identified on ${archPlan.provider.toUpperCase()}.`, payload: archPlan, timestamp: now() }))
 
         // Agent 2 + 3: Engineer + Auditor with retry

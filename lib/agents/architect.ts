@@ -4,17 +4,52 @@ import { ArchPlan } from '@/types'
 
 const client = new Anthropic({ apiKey: config.anthropic.api_key })
 
-const SYSTEM_PROMPT = 'You are a cloud architect. Output ONLY a JSON object. Maximum 4 resources. Each purpose under 6 words. No markdown. Example: {"provider":"aws","region":"us-east-1","resources":[{"type":"vpc","purpose":"isolated network"},{"type":"ecs_cluster","purpose":"run containerised services"},{"type":"rds_postgres","purpose":"managed database"},{"type":"alb","purpose":"load balancer"}]}'
+function getSystemPrompt(provider: string): string {
+  const examples: Record<string, string> = {
+    aws: `{"provider":"aws","region":"us-east-1","resources":[{"type":"vpc","purpose":"isolated network with subnets"},{"type":"ecs_cluster","purpose":"run containerised services"},{"type":"rds_postgres","purpose":"managed relational database"},{"type":"alb","purpose":"application load balancer"}]}`,
+    azure: `{"provider":"azure","region":"eastus","resources":[{"type":"resource_group","purpose":"logical container for all resources"},{"type":"virtual_network","purpose":"isolated network with subnets"},{"type":"aks_cluster","purpose":"managed Kubernetes for containers"},{"type":"postgresql_flexible_server","purpose":"managed PostgreSQL database"},{"type":"application_gateway","purpose":"layer 7 load balancer"}]}`,
+    gcp: `{"provider":"gcp","region":"us-central1","resources":[{"type":"vpc_network","purpose":"isolated network with subnets"},{"type":"gke_cluster","purpose":"managed Kubernetes for containers"},{"type":"cloud_sql_postgres","purpose":"managed PostgreSQL database"},{"type":"cloud_load_balancing","purpose":"global load balancer"},{"type":"cloud_storage","purpose":"object storage bucket"}]}`,
+  }
 
-const DEFAULT_PLAN: ArchPlan = {
-  provider: 'aws',
-  region: 'us-east-1',
-  resources: [
-    { type: 'vpc', purpose: 'isolated network with subnets' },
-    { type: 'ecs_cluster', purpose: 'run containerised services' },
-    { type: 'rds_postgres', purpose: 'managed relational database' },
-    { type: 'alb', purpose: 'application load balancer' },
-  ],
+  return `You are a cloud architect. Output ONLY a JSON object. Maximum 5 resources. Each purpose under 6 words. No markdown or explanation.
+Provider must be exactly: ${provider}
+Example output for ${provider}:
+${examples[provider] || examples.aws}`
+}
+
+const DEFAULT_PLANS: Record<string, ArchPlan> = {
+  aws: {
+    provider: 'aws',
+    region: 'us-east-1',
+    resources: [
+      { type: 'vpc', purpose: 'isolated network with subnets' },
+      { type: 'ecs_cluster', purpose: 'run containerised services' },
+      { type: 'rds_postgres', purpose: 'managed relational database' },
+      { type: 'alb', purpose: 'application load balancer' },
+    ],
+  },
+  azure: {
+    provider: 'azure',
+    region: 'eastus',
+    resources: [
+      { type: 'resource_group', purpose: 'logical container for resources' },
+      { type: 'virtual_network', purpose: 'isolated network with subnets' },
+      { type: 'aks_cluster', purpose: 'managed Kubernetes cluster' },
+      { type: 'postgresql_flexible_server', purpose: 'managed PostgreSQL database' },
+      { type: 'application_gateway', purpose: 'layer 7 load balancer' },
+    ],
+  },
+  gcp: {
+    provider: 'gcp',
+    region: 'us-central1',
+    resources: [
+      { type: 'vpc_network', purpose: 'isolated network with subnets' },
+      { type: 'gke_cluster', purpose: 'managed Kubernetes cluster' },
+      { type: 'cloud_sql_postgres', purpose: 'managed PostgreSQL database' },
+      { type: 'cloud_load_balancing', purpose: 'global load balancer' },
+      { type: 'cloud_storage', purpose: 'object storage bucket' },
+    ],
+  },
 }
 
 function fixJson(str: string): string {
@@ -28,40 +63,47 @@ function fixJson(str: string): string {
   return out
 }
 
-
-
-
-export async function runArchitect(prompt: string, kbContext?: string): Promise<ArchPlan> {
+export async function runArchitect(
+  prompt: string,
+  kbContext?: string,
+  cloudProvider: string = 'aws'
+): Promise<ArchPlan> {
   const contextSection = kbContext
     ? `\n\nORGANISATION STANDARDS (follow these exactly):\n${kbContext.slice(0, 1500)}`
     : ''
 
-  const userMessage = `${prompt.slice(0, 300)}${contextSection}`
-
   const response = await client.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 500,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: userMessage }],
+    max_tokens: 600,
+    system: getSystemPrompt(cloudProvider),
+    messages: [{ role: 'user', content: `${prompt.slice(0, 300)}${contextSection}` }],
   })
 
   const raw = (response.content[0] as { type: string; text: string }).text.trim()
   const cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim()
   const start = cleaned.indexOf('{')
-  if (start === -1) return DEFAULT_PLAN
+  if (start === -1) return DEFAULT_PLANS[cloudProvider] || DEFAULT_PLANS.aws
+
   const end = cleaned.lastIndexOf('}')
   const jsonStr = end !== -1 ? cleaned.slice(start, end + 1) : cleaned.slice(start)
+
   try {
     const parsed = JSON.parse(jsonStr) as ArchPlan
-    if (parsed.resources && parsed.resources.length > 4) parsed.resources = parsed.resources.slice(0, 4)
+    parsed.provider = cloudProvider
+    if (parsed.resources && parsed.resources.length > 5) {
+      parsed.resources = parsed.resources.slice(0, 5)
+    }
     return parsed
   } catch {
     try {
       const parsed = JSON.parse(fixJson(jsonStr)) as ArchPlan
-      if (parsed.resources && parsed.resources.length > 4) parsed.resources = parsed.resources.slice(0, 4)
+      parsed.provider = cloudProvider
+      if (parsed.resources && parsed.resources.length > 5) {
+        parsed.resources = parsed.resources.slice(0, 5)
+      }
       return parsed
     } catch {
-      return DEFAULT_PLAN
+      return DEFAULT_PLANS[cloudProvider] || DEFAULT_PLANS.aws
     }
   }
 }
