@@ -92,11 +92,10 @@ if (!user.email_confirmed_at) {
               <div className="text-xs font-medium text-black truncate">{displayName}</div>
               <div className="text-[11px] text-gray-400 truncate">{user.email}</div>
             </div>
-            <form action="/api/auth/signout" method="POST">
-              <button type="submit" className="text-gray-400 hover:text-black text-xs px-1.5 py-1 rounded hover:bg-gray-50 transition-colors">
-                ↩
-              </button>
-            </form>
+            
+<a href="/api/auth/signout" className="text-gray-400 hover:text-black text-xs px-1.5 py-1 rounded hover:bg-gray-50 transition-colors">
+  ↩
+</a>
           </div>
         </div>
       </nav>
