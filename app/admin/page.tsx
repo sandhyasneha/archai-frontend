@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createServiceClient } from '@supabase/supabase-js'
 import AdminDashboardClient from '@/components/admin/AdminDashboardClient'
 
 export default async function AdminPage() {
@@ -16,38 +17,40 @@ export default async function AdminPage() {
 
   if (!adminUser) redirect('/dashboard')
 
-  // Fetch all users with subscriptions
-  const { data: users } = await supabase
+  // Use service role client for admin operations
+  const serviceClient = createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
+
+  // Fetch auth users using service role
+  const { data: authData } = await serviceClient.auth.admin.listUsers()
+
+  // Fetch all data
+  const { data: users } = await serviceClient
     .from('users')
     .select('*')
     .order('created_at', { ascending: false })
 
-  // Fetch all blueprints
-  const { data: blueprints } = await supabase
+  const { data: blueprints } = await serviceClient
     .from('blueprints')
     .select('*')
     .order('created_at', { ascending: false })
 
-  // Fetch subscriptions with plan info
-  const { data: subscriptions } = await supabase
+  const { data: subscriptions } = await serviceClient
     .from('subscriptions')
     .select('*, plans(*)')
 
-  // Fetch plans
-  const { data: plans } = await supabase
+  const { data: plans } = await serviceClient
     .from('plans')
     .select('*')
     .order('price_monthly', { ascending: true })
 
-  // Fetch usage logs
-  const { data: usageLogs } = await supabase
+  const { data: usageLogs } = await serviceClient
     .from('usage_logs')
     .select('*')
     .order('created_at', { ascending: false })
     .limit(100)
-
-  // Fetch auth users for additional info
-  const { data: authData } = await supabase.auth.admin.listUsers()
 
   return (
     <AdminDashboardClient
