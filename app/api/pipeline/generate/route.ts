@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { runGatekeeper } from '@/lib/agents/gatekeeper'
 import { runArchitect } from '@/lib/agents/architect'
 import { runEngineer } from '@/lib/agents/engineer'
@@ -7,6 +8,10 @@ import { runAuditor } from '@/lib/agents/auditor'
 import { z } from 'zod'
 
 const MAX_RETRIES = 3
+
+// Claude Sonnet 4.6 pricing
+const COST_PER_INPUT_TOKEN = 0.000003   // $3 per 1M tokens
+const COST_PER_OUTPUT_TOKEN = 0.000015  // $15 per 1M tokens
 
 const Schema = z.object({
   prompt: z.string().min(10).max(2000),
@@ -19,6 +24,7 @@ function encode(data: object): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`)
 }
 
+
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -26,6 +32,12 @@ export async function POST(req: NextRequest) {
   if (!user) {
     return new Response('Unauthorised', { status: 401 })
   }
+
+  // Service role client for admin operations
+  const serviceClient = createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
 
   const body = await req.json()
   const parsed = Schema.safeParse(body)
@@ -36,7 +48,41 @@ export async function POST(req: NextRequest) {
 
   const input = parsed.data
 
-  // Fetch user's knowledge base documents
+  // ── PLAN ENFORCEMENT ─────────────────────────────
+  const { data: subscription } = await serviceClient
+    .from('subscriptions')
+    .select('*, plans(*)')
+    .eq('user_id', user.id)
+    .eq('status', 'active')
+    .single()
+
+  if (subscription) {
+    const plan = subscription.plans as {
+      name: string
+      blueprint_limit: number
+      clouds: string[]
+    }
+
+    // Check blueprint limit
+    if (plan.blueprint_limit !== -1 && subscription.blueprints_used >= plan.blueprint_limit) {
+      return new Response(JSON.stringify({
+        error: 'limit_exceeded',
+        message: `You have reached your ${plan.name} plan limit of ${plan.blueprint_limit} blueprints/month. Please upgrade to continue.`,
+        upgrade_required: true,
+      }), { status: 403, headers: { 'Content-Type': 'application/json' } })
+    }
+
+    // Check cloud provider access
+    if (plan.name === 'scout' && input.cloud_provider !== 'aws') {
+      return new Response(JSON.stringify({
+        error: 'cloud_not_allowed',
+        message: `Your Scout plan only supports AWS. Upgrade to Pro for Azure and GCP access.`,
+        upgrade_required: true,
+      }), { status: 403, headers: { 'Content-Type': 'application/json' } })
+    }
+  }
+
+  // ── FETCH KB CONTEXT ─────────────────────────────
   let kbContext = ''
   try {
     const { data: kbFiles } = await supabase.storage
@@ -63,39 +109,64 @@ export async function POST(req: NextRequest) {
   }
 
   const now = () => new Date().toISOString()
+  let totalTokensIn = 0
+  let totalTokensOut = 0
+  let blueprintId: string | null = null
 
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        // Agent 0: Gatekeeper
+        // ── Agent 0: Gatekeeper ──────────────────────
         controller.enqueue(encode({ agent: 'gatekeeper', status: 'started', message: 'Validating prompt...', timestamp: now() }))
         const isValid = await runGatekeeper(input.prompt)
 
+        // Estimate gatekeeper tokens (small fixed cost)
+        totalTokensIn += 50
+        totalTokensOut += 5
+
         if (!isValid) {
-          controller.enqueue(encode({ agent: 'gatekeeper', status: 'rejected', message: 'Prompt is not related to cloud infrastructure. Please describe a cloud architecture requirement.', timestamp: now() }))
+          controller.enqueue(encode({ agent: 'gatekeeper', status: 'rejected', message: 'Prompt is not related to cloud infrastructure.', timestamp: now() }))
           controller.close()
           return
         }
 
         controller.enqueue(encode({ agent: 'gatekeeper', status: 'completed', message: 'Prompt validated — cloud infrastructure request confirmed.', timestamp: now() }))
 
-        // Agent 1: Architect
+        // ── Agent 1: Architect ───────────────────────
         controller.enqueue(encode({ agent: 'architect', status: 'started', message: 'Building resource dependency plan...', timestamp: now() }))
         const archPlan = await runArchitect(input.prompt, kbContext, input.cloud_provider)
-        controller.enqueue(encode({ agent: 'architect', status: 'completed', message: `Plan complete — ${archPlan.resources.length} resources identified on ${archPlan.provider.toUpperCase()}.`, payload: archPlan, timestamp: now() }))
 
-        // Agent 2 + 3: Engineer + Auditor with retry
+        // Estimate architect tokens
+        const archTokensIn = Math.ceil((input.prompt.length + kbContext.length) / 4) + 200
+        const archTokensOut = 200
+        totalTokensIn += archTokensIn
+        totalTokensOut += archTokensOut
+
+        controller.enqueue(encode({ agent: 'architect', status: 'completed', message: `Plan complete — ${archPlan.resources.length} resources on ${archPlan.provider.toUpperCase()}.`, payload: archPlan, timestamp: now() }))
+
+        // ── Agent 2+3: Engineer + Auditor ────────────
         let terraformCode = ''
         let lastError: string | undefined
         let passed = false
 
         for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-          controller.enqueue(encode({ agent: 'engineer', status: 'started', message: attempt === 1 ? 'Generating Terraform HCL...' : `Retry ${attempt}/${MAX_RETRIES} — fixing issues...`, timestamp: now() }))
+          controller.enqueue(encode({ agent: 'engineer', status: 'started', message: attempt === 1 ? 'Generating Terraform HCL...' : `Retry ${attempt}/${MAX_RETRIES}...`, timestamp: now() }))
           terraformCode = await runEngineer(archPlan, kbContext, lastError)
+
+          // Estimate engineer tokens
+          const engTokensIn = Math.ceil(JSON.stringify(archPlan).length / 4) + Math.ceil(kbContext.length / 4) + 300
+          const engTokensOut = Math.ceil(terraformCode.length / 4)
+          totalTokensIn += engTokensIn
+          totalTokensOut += engTokensOut
+
           controller.enqueue(encode({ agent: 'engineer', status: 'completed', message: 'Terraform code generated.', timestamp: now() }))
 
           controller.enqueue(encode({ agent: 'auditor', status: 'started', message: 'Running syntax and security audit...', timestamp: now() }))
           const audit = await runAuditor(terraformCode)
+
+          // Estimate auditor tokens
+          totalTokensIn += Math.ceil(terraformCode.length / 4)
+          totalTokensOut += 10
 
           if (audit.passed) {
             passed = true
@@ -105,7 +176,7 @@ export async function POST(req: NextRequest) {
             lastError = audit.error
             controller.enqueue(encode({ agent: 'auditor', status: 'rejected', message: `REJECTED (attempt ${attempt}/${MAX_RETRIES}): ${audit.error}`, timestamp: now() }))
             if (attempt === MAX_RETRIES) {
-              controller.enqueue(encode({ agent: 'auditor', status: 'error', message: 'Max retries reached. Please refine your prompt and try again.', timestamp: now() }))
+              controller.enqueue(encode({ agent: 'auditor', status: 'error', message: 'Max retries reached. Please refine your prompt.', timestamp: now() }))
               controller.close()
               return
             }
@@ -114,8 +185,8 @@ export async function POST(req: NextRequest) {
 
         if (!passed) { controller.close(); return }
 
-        // Save to Supabase
-        const { data: blueprint, error: insertError } = await supabase
+        // ── Save blueprint ───────────────────────────
+        const { data: blueprint } = await serviceClient
           .from('blueprints')
           .insert({
             user_id: user.id,
@@ -127,15 +198,36 @@ export async function POST(req: NextRequest) {
           .select()
           .single()
 
-        if (insertError) {
-          console.error('Blueprint save error:', insertError)
+        blueprintId = blueprint?.id ?? null
+
+        // ── Log token usage ──────────────────────────
+        const totalCost = (totalTokensIn * COST_PER_INPUT_TOKEN) + (totalTokensOut * COST_PER_OUTPUT_TOKEN)
+        await serviceClient.from('usage_logs').insert({
+          user_id: user.id,
+          blueprint_id: blueprintId,
+          agent: 'pipeline',
+          tokens_in: totalTokensIn,
+          tokens_out: totalTokensOut,
+          cost_usd: totalCost,
+        })
+
+        // ── Update blueprint usage counter ───────────
+        if (subscription) {
+          await serviceClient
+            .from('subscriptions')
+            .update({ blueprints_used: subscription.blueprints_used + 1 })
+            .eq('user_id', user.id)
         }
 
         controller.enqueue(encode({
           agent: 'auditor',
           status: 'completed',
           message: 'Blueprint saved.',
-          payload: { blueprint_id: blueprint?.id, terraform_code: terraformCode, arch_plan: archPlan },
+          payload: {
+            blueprint_id: blueprintId,
+            terraform_code: terraformCode,
+            arch_plan: archPlan,
+          },
           timestamp: now(),
         }))
 

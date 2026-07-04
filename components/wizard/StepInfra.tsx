@@ -65,9 +65,19 @@ export default function StepInfra({ data, updateData, onNext }: Props) {
         }),
       })
 
-      if (!response.ok) {
-        throw new Error(`Server error: ${response.status}`)
-      }
+     
+if (!response.ok) {
+  if (response.status === 403) {
+    const data = await response.json()
+    setError(data.message || 'Plan limit reached. Please upgrade.')
+    setLoading(false)
+    return
+  }
+  throw new Error(`Server error: ${response.status}`)
+}
+
+
+
 
       const reader = response.body?.getReader()
       const decoder = new TextDecoder()
