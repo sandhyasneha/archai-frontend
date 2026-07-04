@@ -1,4 +1,3 @@
- 
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import BlueprintTable from '@/components/dashboard/BlueprintTable'
@@ -34,11 +33,7 @@ export default async function DashboardPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/signin')
-
-// Block unverified users
-if (!user.email_confirmed_at) {
-  redirect(`/verify?email=${encodeURIComponent(user.email ?? '')}`)
-}
+  if (!user.email_confirmed_at) redirect(`/verify?email=${encodeURIComponent(user.email ?? '')}`)
 
   const { data: blueprints } = await supabase
     .from('blueprints')
@@ -92,10 +87,9 @@ if (!user.email_confirmed_at) {
               <div className="text-xs font-medium text-black truncate">{displayName}</div>
               <div className="text-[11px] text-gray-400 truncate">{user.email}</div>
             </div>
-            
-<a href="/api/auth/signout" className="text-gray-400 hover:text-black text-xs px-1.5 py-1 rounded hover:bg-gray-50 transition-colors">
-  ↩
-</a>
+            <a href="/api/auth/signout" className="text-gray-400 hover:text-black text-xs px-1.5 py-1 rounded hover:bg-gray-50 transition-colors">
+              ↩
+            </a>
           </div>
         </div>
       </nav>
@@ -125,7 +119,6 @@ if (!user.email_confirmed_at) {
           </div>
 
           <div className="grid grid-cols-3 gap-5">
-
             <div className="col-span-2 border border-gray-100 rounded-xl overflow-hidden">
               <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between">
                 <span className="text-sm font-semibold text-black">Recent blueprints</span>
@@ -162,7 +155,6 @@ if (!user.email_confirmed_at) {
                 </div>
               )}
             </div>
-
           </div>
         </div>
       </div>
