@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createServiceClient } from '@supabase/supabase-js'
 import BlueprintTable from '@/components/dashboard/BlueprintTable'
 
 interface NavItemProps {
@@ -35,6 +36,11 @@ export default async function DashboardPage() {
   if (!user) redirect('/signin')
   if (!user.email_confirmed_at) redirect(`/verify?email=${encodeURIComponent(user.email ?? '')}`)
 
+  const serviceClient = createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
+
   const { data: blueprints } = await supabase
     .from('blueprints')
     .select('*')
@@ -48,6 +54,14 @@ export default async function DashboardPage() {
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
 
+  const { data: adminCheck } = await serviceClient
+    .from('admin_users')
+    .select('id')
+    .eq('id', user.id)
+    .single()
+
+  const isAdmin = !!adminCheck
+
   const blueprintCount = blueprints?.length ?? 0
   const projectCount = projects?.length ?? 0
 
@@ -58,7 +72,7 @@ export default async function DashboardPage() {
   const stats = [
     { label: 'Projects', value: projectCount.toString(), delta: projectCount === 0 ? 'No projects yet' : `${projectCount} active` },
     { label: 'Cloud spend (est.)', value: blueprintCount > 0 ? '$438' : '$0', delta: 'Monthly estimate' },
-    { label: 'Compliance score', value: blueprintCount > 0 ? '96' : '—', delta: blueprintCount > 0 ? 'SOC 2 + GDPR' : 'Run a blueprint first' },
+    { label: 'Compliance score', value: blueprintCount > 0 ? '96' : '-', delta: blueprintCount > 0 ? 'SOC 2 + GDPR' : 'Run a blueprint first' },
     { label: 'Blueprints generated', value: blueprintCount.toString(), delta: 'This billing cycle' },
   ]
 
@@ -71,12 +85,18 @@ export default async function DashboardPage() {
         </div>
         <div className="flex-1 px-2.5 py-3 flex flex-col gap-0.5 overflow-y-auto">
           <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-2 pt-2 pb-1">Workspace</p>
-          <NavItem icon="▦" label="Dashboard" active={true} href="/dashboard" />
-          <NavItem icon="⌂" label="Greenfield" href="/project/new" />
-          <NavItem icon="⬡" label="Brownfield" href="#" disabled={true} badge="Soon" />
+          <NavItem icon="+" label="Dashboard" active={true} href="/dashboard" />
+          <NavItem icon=">" label="Greenfield" href="/project/new" />
+          <NavItem icon="o" label="Brownfield" href="#" disabled={true} badge="Soon" />
           <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-2 pt-4 pb-1">Configuration</p>
-          <NavItem icon="⊟" label="Knowledge base" href="/knowledge-base" />
-          <NavItem icon="⚙" label="Settings" href="/settings" />
+          <NavItem icon="=" label="Knowledge base" href="/knowledge-base" />
+          <NavItem icon="*" label="Settings" href="/settings" />
+          {isAdmin && (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-2 pt-4 pb-1">Admin</p>
+              <NavItem icon="!" label="Admin panel" href="/admin" />
+            </div>
+          )}
         </div>
         <div className="px-3 py-3.5 border-t border-gray-100">
           <div className="flex items-center gap-2.5">
@@ -88,7 +108,7 @@ export default async function DashboardPage() {
               <div className="text-[11px] text-gray-400 truncate">{user.email}</div>
             </div>
             <a href="/api/auth/signout" className="text-gray-400 hover:text-black text-xs px-1.5 py-1 rounded hover:bg-gray-50 transition-colors">
-              ↩
+              out
             </a>
           </div>
         </div>
@@ -133,7 +153,7 @@ export default async function DashboardPage() {
               </div>
               {blueprintCount === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 text-center px-5">
-                  <div className="text-3xl text-gray-200 mb-4">◎</div>
+                  <div className="text-3xl text-gray-200 mb-4">o</div>
                   <div className="text-sm font-medium text-black mb-1">No activity yet</div>
                   <p className="text-xs text-gray-400">Agent runs and exports will appear here.</p>
                 </div>
