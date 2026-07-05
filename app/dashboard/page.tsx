@@ -85,13 +85,12 @@ export default async function DashboardPage() {
         </div>
         <div className="flex-1 px-2.5 py-3 flex flex-col gap-0.5 overflow-y-auto">
           <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-2 pt-2 pb-1">Workspace</p>
-          <NavItem icon="+" label="Dashboard" active={true} href="/dashboard" />
-          <NavItem icon=">" label="Greenfield" href="/project/new" />
-          <NavItem icon="o" label="Brownfield" href="#" disabled={true} badge="Soon" />
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-2 pt-4 pb-1">Configuration</p>
-          <NavItem icon="=" label="Knowledge base" href="/knowledge-base" />
-          <NavItem icon="*" label="Settings" href="/settings" />
-          {isAdmin && (
+          <NavItem icon="▦" label="Dashboard" active={true} href="/dashboard" />
+	<NavItem icon="⌂" label="Greenfield" href="/project/new" />
+	<NavItem icon="⬡" label="Brownfield" href="#" disabled={true} badge="Soon" />
+	<NavItem icon="⊟" label="Knowledge base" href="/knowledge-base" />
+	<NavItem icon="⚙" label="Settings" href="/settings" />
+	<NavItem icon="▲" label="Admin panel" href="/admin" />          {isAdmin && (
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-2 pt-4 pb-1">Admin</p>
               <NavItem icon="!" label="Admin panel" href="/admin" />
@@ -108,9 +107,8 @@ export default async function DashboardPage() {
               <div className="text-[11px] text-gray-400 truncate">{user.email}</div>
             </div>
             <a href="/api/auth/signout" className="text-gray-400 hover:text-black text-xs px-1.5 py-1 rounded hover:bg-gray-50 transition-colors">
-              out
-            </a>
-          </div>
+  ↩
+</a>          </div>
         </div>
       </nav>
 
