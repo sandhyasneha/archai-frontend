@@ -841,39 +841,41 @@ function closeOnOverlay(e) {
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeContact() })
 
 // Contact form submit — sends via mailto as fallback
+
 async function submitContact(e) {
   e.preventDefault()
   const btn = document.getElementById('cf-submit')
   btn.disabled = true
   btn.textContent = 'Sending...'
 
-  const fname = document.getElementById('cf-fname').value
-  const lname = document.getElementById('cf-lname').value
+  const first_name = document.getElementById('cf-fname').value
+  const last_name = document.getElementById('cf-lname').value
   const email = document.getElementById('cf-email').value
   const company = document.getElementById('cf-company').value
-  const plan = document.getElementById('cf-plan').value
+  const plan_interest = document.getElementById('cf-plan').value
   const message = document.getElementById('cf-message').value
 
-  // Try fetch to Formspree (works without backend)
   try {
-    const res = await fetch('https://formspree.io/f/xpwzvgkd', {
+    const res = await fetch('/api/contact', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({
-        name: `${fname} ${lname}`,
-        email,
-        company,
-        plan,
-        message,
-        _subject: `ArchAI Sales enquiry — ${company || email}`,
-      })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ first_name, last_name, email, company, plan_interest, message })
     })
-    if (res.ok) {
+    const data = await res.json()
+    if (data.success) {
       document.getElementById('contact-form-wrap').style.display = 'none'
       document.getElementById('contact-success').style.display = 'block'
       return
     }
   } catch {}
+
+  btn.disabled = false
+  btn.textContent = 'Send message →'
+}
+
+
+
+
 
   // Fallback: open mailto
   const body = encodeURIComponent(`Name: ${fname} ${lname}\nEmail: ${email}\nCompany: ${company}\nPlan: ${plan}\n\nMessage:\n${message}`)
