@@ -180,7 +180,8 @@ section{padding:96px 0}
 .faq-item.open .faq-ic{transform:rotate(45deg)}
 
 /* CONTACT MODAL */
-.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(8px);z-index:200;align-items:center;justify-content:center;padding:20px}
+.modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:200;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.show{display:flex}
 .modal-overlay.show{display:flex}
 .modal{background:white;border-radius:16px;padding:40px;max-width:480px;width:100%;position:relative;max-height:90vh;overflow-y:auto}
 .modal-close{position:absolute;top:16px;right:16px;width:32px;height:32px;border-radius:50%;background:var(--gray-05);border:none;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;color:var(--gray-40);transition:background .15s}
@@ -827,18 +828,19 @@ function toggleFAQ(btn) {
 }
 
 // Contact modal
+
 function openContact() {
-  document.getElementById('contactModal').classList.add('show')
+  const modal = document.getElementById('contactModal')
+  modal.style.display = 'flex'
+  modal.classList.add('show')
   document.body.style.overflow = 'hidden'
 }
 function closeContact() {
-  document.getElementById('contactModal').classList.remove('show')
+  const modal = document.getElementById('contactModal')
+  modal.style.display = 'none'
+  modal.classList.remove('show')
   document.body.style.overflow = ''
 }
-function closeOnOverlay(e) {
-  if (e.target === document.getElementById('contactModal')) closeContact()
-}
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeContact() })
 
 // Contact form submit — sends via mailto as fallback
 
