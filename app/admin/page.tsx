@@ -21,12 +21,21 @@ export default async function AdminPage() {
 
   if (!adminUser) redirect('/dashboard')
 
-  const { data: authData } = await serviceClient.auth.admin.listUsers()
-  const { data: users } = await serviceClient.from('users').select('*').order('created_at', { ascending: false })
-  const { data: blueprints } = await serviceClient.from('blueprints').select('*').order('created_at', { ascending: false })
-  const { data: subscriptions } = await serviceClient.from('subscriptions').select('*, plans(*)')
-  const { data: plans } = await serviceClient.from('plans').select('*').order('price_monthly', { ascending: true })
-  const { data: usageLogs } = await serviceClient.from('usage_logs').select('*').order('created_at', { ascending: false }).limit(100)
+  const [
+    { data: authData },
+    { data: users },
+    { data: blueprints },
+    { data: subscriptions },
+    { data: plans },
+    { data: usageLogs },
+  ] = await Promise.all([
+    serviceClient.auth.admin.listUsers(),
+    serviceClient.from('users').select('*').order('created_at', { ascending: false }),
+    serviceClient.from('blueprints').select('id, user_id, arch_plan, audit_result, created_at').order('created_at', { ascending: false }),
+    serviceClient.from('subscriptions').select('*, plans(*)'),
+    serviceClient.from('plans').select('*').order('price_monthly', { ascending: true }),
+    serviceClient.from('usage_logs').select('*').order('created_at', { ascending: false }).limit(50),
+  ])
 
   return (
     <AdminDashboardClient
