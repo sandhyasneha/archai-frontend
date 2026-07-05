@@ -81,6 +81,12 @@ export default function AdminDashboardClient({
     setTimeout(() => setToast(''), 3000)
   }
 
+
+const [userSearch, setUserSearch] = useState('')
+const [userPage, setUserPage] = useState(1)
+const USERS_PER_PAGE = 5
+
+
   async function changePlan(userId: string, planId: string, planName: string) {
     setUpdatingUser(userId)
     const { error } = await supabase
@@ -325,95 +331,178 @@ export default function AdminDashboardClient({
             </div>
           )}
 
-          {/* USERS */}
-          {activeTab === 'users' && (
-            <div>
-              <h1 className="text-xl font-medium text-black mb-1">User management</h1>
-              <p className="text-sm text-gray-400 mb-7">Manage plans, monitor usage, and control access.</p>
+          
+{activeTab === 'users' && (
+  <div>
+    <h1 className="text-xl font-medium text-black mb-1">User management</h1>
+    <p className="text-sm text-gray-400 mb-7">Manage plans, monitor usage, and control access.</p>
 
-              <div className="border border-gray-100 rounded-xl overflow-hidden">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b border-gray-100 bg-gray-50">
-                      <th className="text-left px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">User</th>
-                      <th className="text-left px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Country</th>
-                      <th className="text-left px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Verified</th>
-                      <th className="text-left px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Current plan</th>
-                      <th className="text-left px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Blueprints</th>
-                      <th className="text-left px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Last login</th>
-                      <th className="text-left px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Change plan</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {authUsers.map(u => {
-                      const sub = getUserSub(u.id)
-                      return (
-                        <tr key={u.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
-                          <td className="px-5 py-3.5">
-                            <div className="font-medium text-black">{u.user_metadata?.full_name || '—'}</div>
-                            <div className="text-gray-400">{u.email}</div>
-                            <div className="text-gray-400 mt-0.5">{u.user_metadata?.org_name || '—'}</div>
-                          </td>
-                          <td className="px-5 py-3.5 text-gray-600">{getCountryFromEmail(u.email)}</td>
-                          <td className="px-5 py-3.5">
-                            {u.email_confirmed_at
-                              ? <span className="text-green-600 font-medium">✓ Yes</span>
-                              : <span className="text-red-400">✗ No</span>
-                            }
-                          </td>
-                          <td className="px-5 py-3.5">
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                              sub?.plans?.name === 'enterprise' ? 'bg-purple-50 text-purple-700' :
-                              sub?.plans?.name === 'team' ? 'bg-blue-50 text-blue-700' :
-                              sub?.plans?.name === 'pro' ? 'bg-green-50 text-green-700' :
-                              'bg-gray-100 text-gray-600'
-                            }`}>
-                              {sub?.plans?.display_name || 'Scout'}
-                            </span>
-                            {sub?.expires_at && (
-                              <div className="text-[10px] text-gray-400 mt-0.5">
-                                Expires: {new Date(sub.expires_at).toLocaleDateString('en-GB')}
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-5 py-3.5 text-gray-600">
-                            {getUserBlueprints(u.id)}
-                            {sub && sub.plans?.blueprint_limit > 0 && (
-                              <span className="text-gray-400"> / {sub.plans.blueprint_limit}</span>
-                            )}
-                          </td>
-                          <td className="px-5 py-3.5 text-gray-400">
-                            {u.last_sign_in_at
-                              ? new Date(u.last_sign_in_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
-                              : '—'
-                            }
-                          </td>
-                          <td className="px-5 py-3.5">
-                            <select
-                              disabled={updatingUser === u.id}
-                              defaultValue={sub?.plans?.id || ''}
-                              onChange={async (e) => {
-                                const selectedPlan = plans.find(p => p.id === e.target.value)
-                                if (selectedPlan) await changePlan(u.id, selectedPlan.id, selectedPlan.display_name)
-                              }}
-                              className="text-xs border border-gray-200 rounded-md px-2 py-1.5 outline-none focus:border-black cursor-pointer disabled:opacity-50"
-                            >
-                              <option value="">Select plan</option>
-                              {plans.map(p => (
-                                <option key={p.id} value={p.id}>
-                                  {p.display_name} ${p.price_monthly}/mo
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+    {/* Search bar */}
+    <div className="mb-4">
+      <input
+        type="text"
+        placeholder="Search by name, email or organisation..."
+        value={userSearch}
+        onChange={e => { setUserSearch(e.target.value); setUserPage(1) }}
+        className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm outline-none focus:border-black transition-colors"
+      />
+    </div>
+
+    {/* Table */}
+    <div className="border border-gray-100 rounded-xl overflow-hidden mb-4">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-gray-100 bg-gray-50">
+            <th className="text-left px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">User</th>
+            <th className="text-left px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Country</th>
+            <th className="text-left px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Verified</th>
+            <th className="text-left px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Current plan</th>
+            <th className="text-left px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Blueprints</th>
+            <th className="text-left px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Last login</th>
+            <th className="text-left px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Change plan</th>
+          </tr>
+        </thead>
+        <tbody>
+          {authUsers
+            .filter(u =>
+              u.email?.toLowerCase().includes(userSearch.toLowerCase()) ||
+              u.user_metadata?.full_name?.toLowerCase().includes(userSearch.toLowerCase()) ||
+              u.user_metadata?.org_name?.toLowerCase().includes(userSearch.toLowerCase())
+            )
+            .slice((userPage - 1) * USERS_PER_PAGE, userPage * USERS_PER_PAGE)
+            .map(u => {
+              const sub = getUserSub(u.id)
+              return (
+                <tr key={u.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
+                  <td className="px-5 py-3.5">
+                    <div className="font-medium text-black">{u.user_metadata?.full_name || '—'}</div>
+                    <div className="text-gray-400">{u.email}</div>
+                    <div className="text-gray-400 mt-0.5">{u.user_metadata?.org_name || '—'}</div>
+                  </td>
+                  <td className="px-5 py-3.5 text-gray-600">{getCountryFromEmail(u.email)}</td>
+                  <td className="px-5 py-3.5">
+                    {u.email_confirmed_at
+                      ? <span className="text-green-600 font-medium">✓ Yes</span>
+                      : <span className="text-red-400">✗ No</span>
+                    }
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                      sub?.plans?.name === 'enterprise' ? 'bg-purple-50 text-purple-700' :
+                      sub?.plans?.name === 'team' ? 'bg-blue-50 text-blue-700' :
+                      sub?.plans?.name === 'pro' ? 'bg-green-50 text-green-700' :
+                      'bg-gray-100 text-gray-600'
+                    }`}>
+                      {sub?.plans?.display_name || 'Scout'}
+                    </span>
+                    {sub?.expires_at && (
+                      <div className="text-[10px] text-gray-400 mt-0.5">
+                        Expires: {new Date(sub.expires_at).toLocaleDateString('en-GB')}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-5 py-3.5 text-gray-600">
+                    {getUserBlueprints(u.id)}
+                    {sub && sub.plans?.blueprint_limit > 0 && (
+                      <span className="text-gray-400"> / {sub.plans.blueprint_limit}</span>
+                    )}
+                  </td>
+                  <td className="px-5 py-3.5 text-gray-400">
+                    {u.last_sign_in_at
+                      ? new Date(u.last_sign_in_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+                      : '—'
+                    }
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <select
+                      disabled={updatingUser === u.id}
+                      defaultValue={sub?.plans?.id || ''}
+                      onChange={async (e) => {
+                        const selectedPlan = plans.find(p => p.id === e.target.value)
+                        if (selectedPlan) await changePlan(u.id, selectedPlan.id, selectedPlan.display_name)
+                      }}
+                      className="text-xs border border-gray-200 rounded-md px-2 py-1.5 outline-none focus:border-black cursor-pointer disabled:opacity-50"
+                    >
+                      <option value="">Select plan</option>
+                      {plans.map(p => (
+                        <option key={p.id} value={p.id}>
+                          {p.display_name} ${p.price_monthly}/mo
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                </tr>
+              )
+            })}
+        </tbody>
+      </table>
+    </div>
+
+    {/* Pagination */}
+    {(() => {
+      const filteredCount = authUsers.filter(u =>
+        u.email?.toLowerCase().includes(userSearch.toLowerCase()) ||
+        u.user_metadata?.full_name?.toLowerCase().includes(userSearch.toLowerCase()) ||
+        u.user_metadata?.org_name?.toLowerCase().includes(userSearch.toLowerCase())
+      ).length
+      const totalPages = Math.ceil(filteredCount / USERS_PER_PAGE)
+      return (
+        <div className="flex items-center justify-between">
+          <div className="text-xs text-gray-400">
+            Showing {Math.min((userPage - 1) * USERS_PER_PAGE + 1, filteredCount)}–{Math.min(userPage * USERS_PER_PAGE, filteredCount)} of {filteredCount} users
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setUserPage(1)}
+              disabled={userPage === 1}
+              className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-md disabled:opacity-40 hover:bg-gray-50 transition-colors"
+            >
+              First
+            </button>
+            <button
+              onClick={() => setUserPage(p => Math.max(1, p - 1))}
+              disabled={userPage === 1}
+              className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-md disabled:opacity-40 hover:bg-gray-50 transition-colors"
+            >
+              Prev
+            </button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+              <button
+                key={page}
+                onClick={() => setUserPage(page)}
+                className={`px-2.5 py-1.5 text-xs border rounded-md transition-colors ${
+                  userPage === page
+                    ? 'bg-black text-white border-black'
+                    : 'border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                {page}
+              </button>
+            ))}
+            <button
+              onClick={() => setUserPage(p => Math.min(totalPages, p + 1))}
+              disabled={userPage === totalPages}
+              className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-md disabled:opacity-40 hover:bg-gray-50 transition-colors"
+            >
+              Next
+            </button>
+            <button
+              onClick={() => setUserPage(totalPages)}
+              disabled={userPage === totalPages}
+              className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-md disabled:opacity-40 hover:bg-gray-50 transition-colors"
+            >
+              Last
+            </button>
+          </div>
+        </div>
+      )
+    })()}
+  </div>
+)}
+
+
+
+
 
           {/* USAGE */}
           {activeTab === 'usage' && (
