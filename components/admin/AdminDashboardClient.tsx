@@ -110,26 +110,35 @@ export default function AdminDashboardClient({
     setTimeout(() => setToast(''), 3000)
   }
 
-  useEffect(() => {
-    if (activeTab === 'contacts') loadContacts()
-  }, [activeTab])
+  
+useEffect(() => {
+  loadContacts()
+}, [])
+
+useEffect(() => {
+  if (activeTab === 'contacts') loadContacts()
+}, [activeTab])
+
 
   async function loadContacts() {
-    setContactLoading(true)
-    const { data } = await supabase
-      .from('contact_submissions')
-      .select('*')
-      .order('created_at', { ascending: false })
-    setContacts(data ?? [])
-    setContactLoading(false)
-  }
+  setContactLoading(true)
+  const res = await fetch('/api/admin/contacts')
+  const data = await res.json()
+  setContacts(Array.isArray(data) ? data : [])
+  setContactLoading(false)
+}
 
-  async function deleteContact(id: string) {
-    await supabase.from('contact_submissions').delete().eq('id', id)
-    setContacts(prev => prev.filter(c => c.id !== id))
-    showToast('Contact deleted')
-  }
+async function deleteContact(id: string) {
+  await fetch('/api/admin/contacts', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id })
+  })
+  setContacts(prev => prev.filter(c => c.id !== id))
+  showToast('Contact deleted')
+}
 
+ 
   async function updateContactStatus(id: string, status: string) {
     await supabase.from('contact_submissions').update({ status }).eq('id', id)
     setContacts(prev => prev.map(c => c.id === id ? { ...c, status } : c))
