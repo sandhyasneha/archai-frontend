@@ -33,12 +33,12 @@ export async function updateSession(request: NextRequest) {
     !request.nextUrl.pathname.startsWith('/register') &&
     !request.nextUrl.pathname.startsWith('/verify') &&
     !request.nextUrl.pathname.startsWith('/auth/callback') &&
-    !request.nextUrl.pathname.startsWith('/auth/reset-password')
+    !request.nextUrl.pathname.startsWith('/auth/reset-password') &&
+    request.nextUrl.pathname !== '/' &&
+    !request.nextUrl.pathname.endsWith('.html') &&
+    !request.nextUrl.pathname.startsWith('/api/contact')
   ) {
     const url = request.nextUrl.clone()
     url.pathname = '/signin'
     return NextResponse.redirect(url)
   }
-
-  return supabaseResponse
-}
