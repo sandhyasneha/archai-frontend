@@ -15,9 +15,6 @@
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"SoftwareApplication","name":"ArchAI","description":"AI-powered cloud architect that generates production-ready Terraform code for AWS, Azure, and GCP.","url":"https://arch.nexplan.io","applicationCategory":"BusinessApplication","offers":[{"@type":"Offer","name":"Scout","price":"0","priceCurrency":"USD"},{"@type":"Offer","name":"Pro","price":"49","priceCurrency":"USD"},{"@type":"Offer","name":"Team","price":"199","priceCurrency":"USD"},{"@type":"Offer","name":"Enterprise","price":"1500","priceCurrency":"USD"}],"publisher":{"@type":"Organization","name":"NexPlan IT LLC","url":"https://nexplanit.com"}}
 </script>
-footer a { color: rgba(255,255,255,0.3) !important; text-decoration: none !important; }
-footer a:hover { color: rgba(255,255,255,0.7) !important; }
-nav a { text-decoration: none !important; }
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -29,8 +26,9 @@ nav a { text-decoration: none !important; }
 }
 html{scroll-behavior:smooth;font-size:16px}
 body{font-family:var(--font);background:var(--white);color:var(--black);line-height:1.6;overflow-x:hidden}
-a{color:inherit;text-decoration:none}
-footer a{color:inherit;text-decoration:none}
+a{color:inherit;text-decoration:none !important}
+footer a{color:inherit !important;text-decoration:none !important}
+nav a{text-decoration:none !important}
 .container{max-width:1100px;margin:0 auto;padding:0 24px}
 
 /* NAV */
@@ -183,9 +181,8 @@ section{padding:96px 0}
 .faq-item.open .faq-ic{transform:rotate(45deg)}
 
 /* CONTACT MODAL */
-.modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:200;align-items:center;justify-content:center;padding:20px}
-.modal-overlay.show{display:flex}
-.modal-overlay.show{display:flex}
+.modal-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.65);z-index:9999;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.show{display:flex !important}
 .modal{background:white;border-radius:16px;padding:40px;max-width:480px;width:100%;position:relative;max-height:90vh;overflow-y:auto}
 .modal-close{position:absolute;top:16px;right:16px;width:32px;height:32px;border-radius:50%;background:var(--gray-05);border:none;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;color:var(--gray-40);transition:background .15s}
 .modal-close:hover{background:var(--gray-10)}
@@ -824,47 +821,66 @@ footer{background:#0a0a0a;border-top:1px solid rgba(255,255,255,.06);padding:64p
 <script>
 // FAQ
 function toggleFAQ(btn) {
-  const item = btn.parentElement
-  const open = item.classList.contains('open')
-  document.querySelectorAll('.faq-item').forEach(i => i.classList.remove('open'))
-  if (!open) item.classList.add('open')
+  var item = btn.parentElement
+  var open = item.classList.contains('open')
+  var allItems = document.querySelectorAll('.faq-item')
+  for (var i = 0; i < allItems.length; i++) {
+    allItems[i].classList.remove('open')
+    var ans = allItems[i].querySelector('.faq-a')
+    if (ans) ans.style.display = 'none'
+  }
+  if (!open) {
+    item.classList.add('open')
+    var ans = item.querySelector('.faq-a')
+    if (ans) ans.style.display = 'block'
+  }
 }
 
 // Contact modal
-
 function openContact() {
-  const modal = document.getElementById('contactModal')
-  modal.style.display = 'flex'
+  var modal = document.getElementById('contactModal')
   modal.classList.add('show')
+  modal.style.display = 'flex'
   document.body.style.overflow = 'hidden'
 }
 function closeContact() {
-  const modal = document.getElementById('contactModal')
-  modal.style.display = 'none'
+  var modal = document.getElementById('contactModal')
   modal.classList.remove('show')
+  modal.style.display = 'none'
   document.body.style.overflow = ''
 }
+function closeOnOverlay(e) {
+  if (e.target === document.getElementById('contactModal')) closeContact()
+}
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeContact() })
 
 // Contact form submit — sends via mailto as fallback
-
 async function submitContact(e) {
   e.preventDefault()
   const btn = document.getElementById('cf-submit')
   btn.disabled = true
   btn.textContent = 'Sending...'
 
-  const first_name = document.getElementById('cf-fname').value
-  const last_name = document.getElementById('cf-lname').value
+  const fname = document.getElementById('cf-fname').value
+  const lname = document.getElementById('cf-lname').value
   const email = document.getElementById('cf-email').value
   const company = document.getElementById('cf-company').value
-  const plan_interest = document.getElementById('cf-plan').value
+  const plan = document.getElementById('cf-plan').value
   const message = document.getElementById('cf-message').value
 
+  // Submit to ArchAI API
   try {
     const res = await fetch('/api/contact', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ first_name, last_name, email, company, plan_interest, message })
+      body: JSON.stringify({
+        first_name: fname,
+        last_name: lname,
+        email,
+        company,
+        plan_interest: plan,
+        message,
+      })
     })
     const data = await res.json()
     if (data.success) {
@@ -874,17 +890,9 @@ async function submitContact(e) {
     }
   } catch {}
 
-  btn.disabled = false
-  btn.textContent = 'Send message →'
-}
-
-
-
-
-
-  // Fallback: open mailto
+  // Fallback: mailto
   const body = encodeURIComponent(`Name: ${fname} ${lname}\nEmail: ${email}\nCompany: ${company}\nPlan: ${plan}\n\nMessage:\n${message}`)
-  window.location.href = `mailto:info@nexplanit.com?subject=ArchAI Sales Enquiry — ${company || email}&body=${body}`
+  window.location.href = `mailto:info@nexplanit.com?subject=ArchAI Sales Enquiry&body=${body}`
   btn.disabled = false
   btn.textContent = 'Send message →'
 }
