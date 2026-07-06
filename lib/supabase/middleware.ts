@@ -27,18 +27,23 @@ export async function updateSession(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (
-    !user &&
-    !request.nextUrl.pathname.startsWith('/signin') &&
-    !request.nextUrl.pathname.startsWith('/register') &&
-    !request.nextUrl.pathname.startsWith('/verify') &&
-    !request.nextUrl.pathname.startsWith('/auth/callback') &&
-    !request.nextUrl.pathname.startsWith('/auth/reset-password') &&
-    request.nextUrl.pathname !== '/' &&
-    !request.nextUrl.pathname.endsWith('.html') &&
-    !request.nextUrl.pathname.startsWith('/api/contact')
-  ) {
+  const path = request.nextUrl.pathname
+
+  const isPublic =
+    path === '/' ||
+    path.endsWith('.html') ||
+    path.startsWith('/signin') ||
+    path.startsWith('/register') ||
+    path.startsWith('/verify') ||
+    path.startsWith('/auth/callback') ||
+    path.startsWith('/auth/reset-password') ||
+    path.startsWith('/api/contact')
+
+  if (!user && !isPublic) {
     const url = request.nextUrl.clone()
     url.pathname = '/signin'
     return NextResponse.redirect(url)
   }
+
+  return supabaseResponse
+}
