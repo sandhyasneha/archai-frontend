@@ -222,7 +222,11 @@ footer{background:#0a0a0a;border-top:1px solid rgba(255,255,255,.06);padding:64p
 .footer-addr a{color:rgba(255,255,255,.25);transition:color .15s}
 .footer-addr a:hover{color:rgba(255,255,255,.6)}
 .footer-col-title{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:rgba(255,255,255,.3);margin-bottom:16px}
-.footer-links{display:flex !important;flex-direction:column !important;gap:11px !important;list-style:none !important;padding:0 !important;margin:0 !important;float:none !important}
+
+.footer-links{display:flex !important;flex-direction:column !important;gap:11px !important;list-style:none !important;padding:0 !important;margin:0 !important;float:none !important;position:static !important;width:auto !important;height:auto !important;overflow:visible !important;background:none !important;border:none !important;z-index:auto !important}
+
+footer .footer-grid{display:grid !important;grid-template-columns:2fr 1fr 1fr 1fr !important;gap:48px !important}
+footer nav.footer-links{position:static !important;display:flex !important;flex-direction:column !important}
 .footer-links a{font-size:13px;color:rgba(255,255,255,.3) !important;transition:color .15s;text-decoration:none !important}
 .footer-links a:hover{color:rgba(255,255,255,.7) !important}
 .footer-bottom{border-top:1px solid rgba(255,255,255,.06);padding-top:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
