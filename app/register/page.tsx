@@ -215,7 +215,11 @@ const { data, error } = await supabase.auth.signUp({
                 className="mt-0.5 w-3.5 h-3.5 cursor-pointer accent-black flex-shrink-0"
               />
               <label htmlFor="terms" className="text-xs text-gray-500 leading-relaxed cursor-pointer">
-                I agree to the <span className="text-black underline">Terms of Service</span> and <span className="text-black underline">Privacy Policy</span>. ArchAI processes data under GDPR-compliant infrastructure.
+                I agree to the{' '}
+                <Link href="/terms" target="_blank" className="text-black underline hover:no-underline">Terms of Service</Link>
+                {' '}and{' '}
+                <Link href="/privacy" target="_blank" className="text-black underline hover:no-underline">Privacy Policy</Link>
+                . ArchAI processes data under GDPR-compliant infrastructure.
               </label>
             </div>
 

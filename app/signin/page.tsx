@@ -199,6 +199,13 @@ async function handleForgotPassword() {
               Create one
             </Link>
           </p>
+
+          <p className="text-center text-[11px] text-gray-400 mt-4 leading-relaxed">
+            By signing in, you agree to our{' '}
+            <Link href="/terms" target="_blank" className="text-gray-500 underline hover:text-black">Terms of Service</Link>
+            {' '}and{' '}
+            <Link href="/privacy" target="_blank" className="text-gray-500 underline hover:text-black">Privacy Policy</Link>.
+          </p>
         </div>
       </div>
     </div>
