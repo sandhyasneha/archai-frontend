@@ -86,6 +86,7 @@ export default async function DashboardPage() {
           <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-2 pt-4 pb-1">Configuration</p>
           <NavItem icon="⊟" label="Knowledge base" href="/knowledge-base" />
           <NavItem icon="⚙" label="Settings" href="/settings" />
+          <NavItem icon="📖" label="Docs" href="/doc" />
           {isAdmin && (
             <>
               <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-2 pt-4 pb-1">Admin</p>
