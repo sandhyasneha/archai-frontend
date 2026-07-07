@@ -165,6 +165,10 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
             if (event.step === 'engineer' && event.status === 'completed') {}
             if (event.step === 'complete' && event.payload) {
               setTerraformOutput(event.payload.terraform_output || '')
+              if (event.payload.scan_id) {
+                window.location.href = `/brownfield/${event.payload.scan_id}`
+                return
+              }
               setStep('results')
             }
           } catch { }

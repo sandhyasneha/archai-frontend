@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import BlueprintTable from '@/components/dashboard/BlueprintTable'
+import BrownfieldTable from '@/components/dashboard/BrownfieldTable'
 
 interface NavItemProps {
   icon: string
@@ -45,15 +46,18 @@ export default async function DashboardPage() {
     { data: blueprints },
     { data: projects },
     { data: adminCheck },
+    { data: brownfieldScans },
   ] = await Promise.all([
     supabase.from('blueprints').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(20),
     supabase.from('projects').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
     serviceClient.from('admin_users').select('id').eq('id', user.id).single(),
+    supabase.from('brownfield_scans').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(20),
   ])
 
   const isAdmin = !!adminCheck
   const blueprintCount = blueprints?.length ?? 0
   const projectCount = projects?.length ?? 0
+  const brownfieldCount = brownfieldScans?.length ?? 0
 
   const displayName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'there'
   const orgName = user.user_metadata?.org_name || user.email?.split('@')[1]?.split('.')[0] || 'Your Organisation'
@@ -64,6 +68,7 @@ export default async function DashboardPage() {
     { label: 'Cloud spend (est.)', value: blueprintCount > 0 ? '$438' : '$0', delta: 'Monthly estimate' },
     { label: 'Compliance score', value: blueprintCount > 0 ? '96' : '—', delta: blueprintCount > 0 ? 'SOC 2 + GDPR' : 'Run a blueprint first' },
     { label: 'Blueprints generated', value: blueprintCount.toString(), delta: 'This billing cycle' },
+    { label: 'Migrations run', value: brownfieldCount.toString(), delta: brownfieldCount === 0 ? 'No migrations yet' : 'This billing cycle' },
   ]
 
   return (
@@ -118,7 +123,7 @@ export default async function DashboardPage() {
             <p className="text-sm text-gray-400">{orgName} workspace</p>
           </div>
 
-          <div className="grid grid-cols-4 gap-3.5 mb-7">
+          <div className="grid grid-cols-5 gap-3.5 mb-7">
             {stats.map((s) => (
               <div key={s.label} className="border border-gray-100 rounded-xl p-4">
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">{s.label}</div>
@@ -165,6 +170,14 @@ export default async function DashboardPage() {
                 </div>
               )}
             </div>
+          </div>
+
+          <div className="border border-gray-100 rounded-xl overflow-hidden mt-5">
+            <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between">
+              <span className="text-sm font-semibold text-black">Recent brownfield migrations</span>
+              <a href="/brownfield" className="text-xs text-gray-400 hover:text-black transition-colors">+ New</a>
+            </div>
+            <BrownfieldTable scans={brownfieldScans ?? []} />
           </div>
         </div>
       </div>
