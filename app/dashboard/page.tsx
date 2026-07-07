@@ -77,7 +77,7 @@ export default async function DashboardPage() {
           <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-2 pt-2 pb-1">Workspace</p>
           <NavItem icon="▦" label="Dashboard" active={true} href="/dashboard" />
           <NavItem icon="⌂" label="Greenfield" href="/project/new" />
-          <NavItem icon="⬡" label="Brownfield" href="#" disabled={true} badge="Soon" />
+          <NavItem icon="⬡" label="Brownfield" href="/brownfield" />
           <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-2 pt-4 pb-1">Configuration</p>
           <NavItem icon="⊟" label="Knowledge base" href="/knowledge-base" />
           <NavItem icon="⚙" label="Settings" href="/settings" />

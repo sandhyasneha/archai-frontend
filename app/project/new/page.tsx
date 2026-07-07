@@ -103,11 +103,10 @@ const [currentStep, setCurrentStep] = useState(1)
           </div>
 
           <div className="mt-3">
-            <span className="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-gray-300 opacity-40 cursor-not-allowed">
+            <a href="/brownfield" className="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-gray-500 hover:bg-gray-50 hover:text-black transition-colors">
               <span className="text-base w-4">⬡</span>
               <span>Brownfield</span>
-              <span className="ml-auto text-[10px] border border-dashed border-gray-300 px-1.5 py-0.5 rounded-full text-gray-400">Soon</span>
-            </span>
+            </a>
           </div>
         </div>
 

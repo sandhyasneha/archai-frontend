@@ -142,10 +142,9 @@ export default function BlueprintDetailClient({ blueprint, user }: Props) {
           </div>
 
           <div className="mt-2">
-            <span className="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-gray-300 opacity-40 cursor-not-allowed">
+            <a href="/brownfield" className="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-gray-500 hover:bg-gray-50 hover:text-black transition-colors">
               <span className="w-4">⬡</span> Brownfield
-              <span className="ml-auto text-[10px] border border-dashed border-gray-200 px-1.5 py-0.5 rounded-full">Soon</span>
-            </span>
+            </a>
           </div>
 
           <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-2 pt-4 pb-1">Configuration</p>
