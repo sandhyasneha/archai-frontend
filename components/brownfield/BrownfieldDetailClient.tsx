@@ -214,6 +214,9 @@ export default function BrownfieldDetailClient({ scan, user }: Props) {
           <a href="/settings" className="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-gray-500 hover:bg-gray-50 hover:text-black transition-colors">
             <span className="w-4">⚙</span> Settings
           </a>
+          <a href="/doc" className="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-gray-500 hover:bg-gray-50 hover:text-black transition-colors">
+            <span className="w-4">📖</span> Docs
+          </a>
         </div>
 
         <div className="px-3 py-3.5 border-t border-gray-100">
