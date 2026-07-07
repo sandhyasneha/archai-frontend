@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
         controller.enqueue(encode({ step: 'engineer', status: 'completed', message: 'Terraform generated successfully.', timestamp: now() }))
 
         // Save to Supabase
-        const { data: scan } = await serviceClient
+        const { data: scan, error: insertError } = await serviceClient
           .from('brownfield_scans')
           .insert({
             user_id: user.id,
@@ -102,22 +102,7 @@ export async function POST(req: NextRequest) {
             input_content: input.input_content.slice(0, 5000),
             source_cloud: scanResult.source_cloud,
             target_cloud: input.target_cloud,
-            audit_findings: {
-              findings: auditResult.findings,
-              compliance_score: auditResult.compliance_score,
-              critical_count: auditResult.critical_count,
-              high_count: auditResult.high_count,
-              medium_count: auditResult.medium_count,
-              low_count: auditResult.low_count,
-              cost_waste_usd: auditResult.cost_waste_usd,
-              summary: auditResult.summary,
-              scan_summary: {
-                total_resources: scanResult.total_resources,
-                source_cloud: scanResult.source_cloud,
-                region: scanResult.region,
-                resources: scanResult.resources,
-              },
-            },
+            audit_findings: auditResult.findings,
             migration_plan: migrationPlan,
             terraform_output: terraformOutput,
             cost_before: migrationPlan.cost_before_usd,
@@ -126,6 +111,10 @@ export async function POST(req: NextRequest) {
           })
           .select()
           .single()
+
+        if (insertError) {
+          console.error('brownfield_scans insert failed:', insertError)
+        }
 
         controller.enqueue(encode({
           step: 'complete',
