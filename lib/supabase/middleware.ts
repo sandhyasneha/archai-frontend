@@ -37,7 +37,9 @@ export async function updateSession(request: NextRequest) {
     path.startsWith('/verify') ||
     path.startsWith('/auth/callback') ||
     path.startsWith('/auth/reset-password') ||
-    path.startsWith('/api/contact')
+    path.startsWith('/api/contact') ||
+    path.startsWith('/terms') ||
+    path.startsWith('/privacy')
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone()
