@@ -5,6 +5,7 @@ import { runScanner } from '@/lib/agents/brownfield/scanner'
 import { runBrownfieldAuditor } from '@/lib/agents/brownfield/auditor'
 import { runPlanner } from '@/lib/agents/brownfield/planner'
 import { runBrownfieldEngineer } from '@/lib/agents/brownfield/engineer'
+import { generateADR } from '@/lib/agents/brownfield/adr'
 import { z } from 'zod'
 
 const Schema = z.object({
@@ -131,6 +132,25 @@ export async function POST(req: NextRequest) {
           console.error('brownfield_scans insert failed:', insertError)
         }
 
+        // Generate the Architectural Decision Record now that we have a
+        // real scan ID to anchor it to. Attached via update into the
+        // existing migration_plan JSONB column — no new schema needed.
+        let adrMarkdown: string | null = null
+        let adrId: string | null = null
+        if (scan?.id) {
+          adrId = `ADR-${scan.id.slice(0, 8).toUpperCase()}`
+          adrMarkdown = generateADR(adrId, scanResult, auditResult, migrationPlan)
+          const { error: adrError } = await serviceClient
+            .from('brownfield_scans')
+            .update({
+              migration_plan: { ...migrationPlan, adr_id: adrId, adr_markdown: adrMarkdown },
+            })
+            .eq('id', scan.id)
+          if (adrError) {
+            console.error('ADR attach failed:', adrError)
+          }
+        }
+
         controller.enqueue(encode({
           step: 'complete',
           status: 'completed',
@@ -141,6 +161,8 @@ export async function POST(req: NextRequest) {
             audit_result: auditResult,
             migration_plan: migrationPlan,
             terraform_output: terraformOutput,
+            adr_id: adrId,
+            adr_markdown: adrMarkdown,
           },
           timestamp: now(),
         }))

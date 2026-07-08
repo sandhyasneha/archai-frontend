@@ -57,6 +57,8 @@ interface MigrationPlan {
   cost_after_usd: number
   cost_saving_usd: number
   cost_saving_pct: number
+  adr_id?: string
+  adr_markdown?: string
 }
 
 interface BrownfieldScan {
@@ -79,13 +81,14 @@ interface Props {
   user: { email: string; full_name: string; initials: string }
 }
 
-type Step = 'overview' | 'audit' | 'plan' | 'terraform' | 'export'
+type Step = 'overview' | 'audit' | 'plan' | 'terraform' | 'adr' | 'export'
 
 const STEPS = [
   { id: 'overview' as Step, label: 'Overview', icon: '◎' },
   { id: 'audit' as Step, label: 'Audit findings', icon: '🛡' },
   { id: 'plan' as Step, label: 'Migration plan', icon: '🔄' },
   { id: 'terraform' as Step, label: 'Terraform output', icon: '⌂' },
+  { id: 'adr' as Step, label: 'Audit trail (ADR)', icon: '📜' },
   { id: 'export' as Step, label: 'Review & export', icon: '🚀' },
 ]
 
@@ -122,6 +125,69 @@ function normaliseAudit(raw: AuditFinding[] | RichAuditFindings): RichAuditFindi
   return raw
 }
 
+// Lightweight renderer for the ADR's markdown, tailored to the specific
+// template format generateADR() produces (### / #### headers, - bullets,
+// **bold**, --- rule) — avoids adding a general-purpose markdown dependency
+// for a single, controlled document format.
+function renderADRMarkdown(md: string) {
+  const lines = md.split('\n')
+  const blocks: React.ReactNode[] = []
+  let listBuffer: string[] = []
+
+  function flushList(key: string) {
+    if (listBuffer.length === 0) return
+    blocks.push(
+      <ul key={key} className="flex flex-col gap-1.5 my-2">
+        {listBuffer.map((item, i) => (
+          <li key={i} className="text-sm text-gray-700 leading-relaxed pl-4 relative before:content-['—'] before:absolute before:left-0 before:text-gray-300">
+            {renderInline(item)}
+          </li>
+        ))}
+      </ul>
+    )
+    listBuffer = []
+  }
+
+  function renderInline(text: string): React.ReactNode {
+    const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g)
+    return parts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**')) return <strong key={i} className="text-black font-semibold">{part.slice(2, -2)}</strong>
+      if (part.startsWith('*') && part.endsWith('*')) return <em key={i} className="text-gray-500">{part.slice(1, -1)}</em>
+      return part
+    })
+  }
+
+  lines.forEach((line, idx) => {
+    const trimmed = line.trim()
+    if (trimmed.startsWith('- ')) {
+      listBuffer.push(trimmed.slice(2))
+      return
+    }
+    flushList(`ul-${idx}`)
+
+    if (trimmed === '---') {
+      blocks.push(<hr key={idx} className="border-gray-100 my-4" />)
+    } else if (trimmed.startsWith('#### ')) {
+      blocks.push(<h4 key={idx} className="text-sm font-semibold text-black mt-4 mb-1.5">{renderInline(trimmed.slice(5))}</h4>)
+    } else if (trimmed.startsWith('### ')) {
+      blocks.push(<h3 key={idx} className="text-base font-semibold text-black mb-1">{renderInline(trimmed.slice(4))}</h3>)
+    } else if (trimmed.startsWith('- **ID')) {
+      blocks.push(<p key={idx} className="text-xs text-gray-500">{renderInline(trimmed.slice(2))}</p>)
+    } else if (trimmed.startsWith('*') && trimmed.endsWith('*') && !trimmed.startsWith('**')) {
+      blocks.push(<p key={idx} className="text-xs text-gray-400 italic mb-3">{trimmed.slice(1, -1)}</p>)
+    } else if (trimmed.startsWith('- ')) {
+      // handled above
+    } else if (trimmed === '') {
+      // spacing handled by margins
+    } else {
+      blocks.push(<p key={idx} className="text-sm text-gray-700 leading-relaxed mb-1">{renderInline(trimmed)}</p>)
+    }
+  })
+  flushList('ul-end')
+
+  return <div className="flex flex-col">{blocks}</div>
+}
+
 export default function BrownfieldDetailClient({ scan, user }: Props) {
   const [activeStep, setActiveStep] = useState<Step>('overview')
   const [copied, setCopied] = useState(false)
@@ -148,6 +214,19 @@ export default function BrownfieldDetailClient({ scan, user }: Props) {
     const a = document.createElement('a')
     a.href = url
     a.download = `archai-migration-${scan.id.slice(0, 8)}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  function downloadADR() {
+    if (!plan?.adr_markdown) return
+    const blob = new Blob([plan.adr_markdown], { type: 'text/markdown' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${plan.adr_id || 'ADR'}-${scan.id.slice(0, 8)}.md`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -450,7 +529,26 @@ export default function BrownfieldDetailClient({ scan, user }: Props) {
             </div>
           )}
 
-          {/* STEP 5 — Review & export */}
+          {/* STEP 5 — Audit trail (ADR) */}
+          {activeStep === 'adr' && (
+            <div className="max-w-4xl">
+              <h2 className="text-base font-semibold text-black mb-1">Audit trail — Architectural Decision Record</h2>
+              <p className="text-sm text-gray-400 mb-5">
+                A compliance-ready record of what was found, what changed, and why — for SOC 2 / ISO 27001 audit trails.
+              </p>
+              {plan?.adr_markdown ? (
+                <div className="border border-gray-100 rounded-xl p-6">
+                  {renderADRMarkdown(plan.adr_markdown)}
+                </div>
+              ) : (
+                <div className="border border-gray-100 rounded-xl p-6 text-sm text-gray-400">
+                  No ADR was generated for this migration (older migrations run before this feature was added won&apos;t have one).
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* STEP 6 — Review & export */}
           {activeStep === 'export' && (
             <div className="max-w-4xl">
               <h2 className="text-base font-semibold text-black mb-1">Review &amp; export</h2>
@@ -476,7 +574,7 @@ export default function BrownfieldDetailClient({ scan, user }: Props) {
                 ))}
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className={plan?.adr_markdown ? 'grid grid-cols-4 gap-3' : 'grid grid-cols-3 gap-3'}>
                 <button
                   onClick={downloadTerraform}
                   className="flex flex-col items-start p-5 border-2 border-black bg-black text-white rounded-lg hover:opacity-85 transition-opacity text-left"
@@ -501,6 +599,16 @@ export default function BrownfieldDetailClient({ scan, user }: Props) {
                   <span className="text-sm font-medium text-black mb-1">Export JSON</span>
                   <span className="text-xs text-gray-400">Full migration record as JSON</span>
                 </button>
+                {plan?.adr_markdown && (
+                  <button
+                    onClick={downloadADR}
+                    className="flex flex-col items-start p-5 border border-gray-100 rounded-lg hover:border-black transition-colors text-left"
+                  >
+                    <span className="text-xl mb-2 text-gray-400">📜</span>
+                    <span className="text-sm font-medium text-black mb-1">Download ADR</span>
+                    <span className="text-xs text-gray-400">Audit trail record ({plan.adr_id})</span>
+                  </button>
+                )}
               </div>
             </div>
           )}
