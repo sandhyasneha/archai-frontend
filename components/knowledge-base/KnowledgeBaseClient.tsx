@@ -116,7 +116,10 @@ export default function KnowledgeBaseClient({ user, initialFiles }: Props) {
 
     const { error } = await supabase.storage
       .from('knowledge-base')
-      .upload(path, file, { upsert: false })
+      .upload(path, file, {
+        upsert: false,
+        contentType: file.name.endsWith('.tf') ? 'text/plain' : file.type || 'application/octet-stream',
+      })
 
     if (error) {
       showToast('Upload failed: ' + error.message)
