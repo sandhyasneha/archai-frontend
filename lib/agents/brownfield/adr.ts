@@ -58,7 +58,7 @@ ${findingsList}
 
 Overall initial compliance baseline score evaluated at **${auditResult.compliance_score}/100**. Estimated monthly cost waste identified: **$${auditResult.cost_waste_usd}/mo** *(indicative estimate — see Terms of Service).*
 
-#### 3. Import &amp; Reconstruction Decision
+#### 3. Import & Reconstruction Decision
 Migration strategy selected: **${migrationPlan.strategy}**, targeting ${migrationPlan.target_cloud.toUpperCase()} (${migrationPlan.target_region}), executed across ${migrationPlan.total_phases} phase(s) over an estimated ${migrationPlan.estimated_days} day(s):
 
 ${phasesList}
@@ -66,7 +66,7 @@ ${phasesList}
 #### 4. Implemented Technical Corrections
 To remediate the findings identified in Section 2, the Engineer agent generated modernised Terraform for ${migrationPlan.target_cloud.toUpperCase()} addressing every identified issue prior to this record being accepted. The full generated configuration is available in the Terraform Output step of this migration.
 
-#### 5. Long-Term Consequences &amp; Governance
+#### 5. Long-Term Consequences & Governance
 - **Positive:** Compliance rating projected to improve from ${auditResult.compliance_score}/100 toward a fully remediated baseline once deployed. Projected monthly cost: $${migrationPlan.cost_before_usd}/mo → $${migrationPlan.cost_after_usd}/mo (${migrationPlan.cost_saving_pct}% saving, indicative estimate).
 - **Negative:** Infrastructure changes to this environment should now be managed through this IaC pipeline going forward — manual console changes will cause drift from this recorded baseline.
 - **Monitoring Policy:** This environment's baseline is anchored to migration record ${adrId}. Re-run a Brownfield scan periodically to detect and reconcile any configuration drift against this record.
