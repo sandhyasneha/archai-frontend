@@ -62,6 +62,8 @@ export default function KnowledgeBaseClient({ user, initialFiles }: Props) {
   const supabase = createClient()
   const [files, setFiles] = useState<KBFile[]>(initialFiles)
   const [uploading, setUploading] = useState(false)
+  const [scanning, setScanning] = useState(false)
+  const [blockedIssues, setBlockedIssues] = useState<{ resource: string; issue: string }[] | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [toast, setToast] = useState('')
   const [deleting, setDeleting] = useState<string | null>(null)
@@ -81,6 +83,32 @@ export default function KnowledgeBaseClient({ user, initialFiles }: Props) {
     if (file.size > 20 * 1024 * 1024) {
       showToast('File too large. Maximum size is 20 MB.')
       return
+    }
+
+    setBlockedIssues(null)
+
+    // Pre-check: Terraform templates are used as a trusted baseline for every
+    // future blueprint, so scan for critical security issues before accepting.
+    if (file.name.endsWith('.tf')) {
+      setScanning(true)
+      try {
+        const content = await file.text()
+        const res = await fetch('/api/knowledge-base/scan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content, filename: file.name }),
+        })
+        const result = await res.json()
+        if (result.blocked) {
+          setBlockedIssues(result.issues ?? [])
+          setScanning(false)
+          return
+        }
+      } catch {
+        // Scan itself failed (not a security finding) — allow upload rather
+        // than blocking on an infrastructure error.
+      }
+      setScanning(false)
     }
 
     setUploading(true)
@@ -219,6 +247,35 @@ export default function KnowledgeBaseClient({ user, initialFiles }: Props) {
               ))}
             </div>
 
+            {/* Blocked upload banner */}
+            {blockedIssues !== null && (
+              <div className="border-2 border-red-200 bg-red-50 rounded-xl p-5 mb-5">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-red-500">⛔</span>
+                  <span className="text-sm font-semibold text-red-700">Upload blocked — critical security issues found</span>
+                </div>
+                <p className="text-xs text-red-600 mb-3">
+                  This template will be used as a baseline for future blueprints, so it can&apos;t be accepted with
+                  critical exposures still present. Fix these and re-upload:
+                </p>
+                {blockedIssues.length > 0 && (
+                  <ul className="flex flex-col gap-1.5">
+                    {blockedIssues.map((issue, i) => (
+                      <li key={i} className="text-xs text-red-700 bg-white/60 rounded-md px-3 py-2">
+                        <span className="font-mono font-medium">{issue.resource}</span> — {issue.issue}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <button
+                  onClick={() => setBlockedIssues(null)}
+                  className="text-xs text-red-500 hover:text-red-700 mt-3 underline"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
             {/* Upload zone */}
             <div
               onDragOver={e => { e.preventDefault(); setDragOver(true) }}
@@ -232,10 +289,10 @@ export default function KnowledgeBaseClient({ user, initialFiles }: Props) {
             >
               <div className="text-3xl text-gray-300 mb-3">↑</div>
               <div className="text-sm font-medium text-black mb-1">
-                {uploading ? 'Uploading...' : 'Drop a file here or click to upload'}
+                {scanning ? 'Scanning for critical security issues...' : uploading ? 'Uploading...' : 'Drop a file here or click to upload'}
               </div>
               <div className="text-xs text-gray-400">
-                PDF, DOCX, TXT, JSON, .tf · Max 20 MB per file
+                PDF, DOCX, TXT, JSON, .tf · Max 20 MB per file · .tf files are security-scanned before acceptance
               </div>
             </div>
 
