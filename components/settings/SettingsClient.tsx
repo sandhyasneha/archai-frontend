@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 interface UserData {
@@ -16,7 +16,16 @@ interface Props {
   user: UserData
 }
 
-type SettingsTab = 'profile' | 'password' | 'integrations' | 'plan' | 'danger'
+type SettingsTab = 'profile' | 'password' | 'integrations' | 'api-keys' | 'plan' | 'danger'
+
+interface ApiKey {
+  id: string
+  name: string
+  key_prefix: string
+  created_at: string
+  last_used_at: string | null
+  revoked_at: string | null
+}
 
 export default function SettingsClient({ user }: Props) {
   const supabase = createClient()
@@ -28,6 +37,11 @@ export default function SettingsClient({ user }: Props) {
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [pwError, setPwError] = useState('')
+  const [apiKeys, setApiKeys] = useState<ApiKey[]>([])
+  const [newKeyName, setNewKeyName] = useState('')
+  const [generatedKey, setGeneratedKey] = useState<string | null>(null)
+  const [keysLoading, setKeysLoading] = useState(false)
+  const [keyCopied, setKeyCopied] = useState(false)
 
   function showToast(msg: string) {
     setToast(msg)
@@ -64,10 +78,77 @@ export default function SettingsClient({ user }: Props) {
     window.location.href = '/signin'
   }
 
+  async function loadApiKeys() {
+    setKeysLoading(true)
+    try {
+      const res = await fetch('/api/api-keys')
+      const data = await res.json()
+      setApiKeys(data.keys ?? [])
+    } catch {
+      showToast('Failed to load API keys')
+    }
+    setKeysLoading(false)
+  }
+
+  useEffect(() => {
+    if (activeTab !== 'api-keys') return
+    let cancelled = false
+    ;(async () => {
+      setKeysLoading(true)
+      try {
+        const res = await fetch('/api/api-keys')
+        const data = await res.json()
+        if (!cancelled) setApiKeys(data.keys ?? [])
+      } catch {
+        if (!cancelled) showToast('Failed to load API keys')
+      }
+      if (!cancelled) setKeysLoading(false)
+    })()
+    return () => { cancelled = true }
+  }, [activeTab])
+
+  async function createApiKey() {
+    if (!newKeyName.trim()) { showToast('Give the key a name first'); return }
+    setSaving(true)
+    try {
+      const res = await fetch('/api/api-keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newKeyName.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) { showToast(data.error || 'Failed to create key'); setSaving(false); return }
+      setGeneratedKey(data.full_key)
+      setNewKeyName('')
+      await loadApiKeys()
+    } catch {
+      showToast('Failed to create key')
+    }
+    setSaving(false)
+  }
+
+  async function revokeApiKey(id: string) {
+    try {
+      await fetch(`/api/api-keys/${id}`, { method: 'DELETE' })
+      await loadApiKeys()
+      showToast('Key revoked')
+    } catch {
+      showToast('Failed to revoke key')
+    }
+  }
+
+  function copyGeneratedKey() {
+    if (!generatedKey) return
+    navigator.clipboard.writeText(generatedKey)
+    setKeyCopied(true)
+    setTimeout(() => setKeyCopied(false), 2000)
+  }
+
   const tabs: { id: SettingsTab; label: string }[] = [
     { id: 'profile', label: 'Profile' },
     { id: 'password', label: 'Password' },
     { id: 'integrations', label: 'Integrations' },
+    { id: 'api-keys', label: 'API Keys' },
     { id: 'plan', label: 'Plan & billing' },
     { id: 'danger', label: 'Danger zone' },
   ]
@@ -254,6 +335,87 @@ export default function SettingsClient({ user }: Props) {
                     </button>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* API Keys */}
+            {activeTab === 'api-keys' && (
+              <div className="flex flex-col gap-5">
+                <div className="border border-gray-100 rounded-xl overflow-hidden">
+                  <div className="px-5 py-4 border-b border-gray-50 bg-gray-50">
+                    <div className="text-sm font-semibold text-black">API Keys</div>
+                    <div className="text-xs text-gray-400 mt-0.5">
+                      Used by the ArchAI CLI to authenticate Brownfield auto-discover scans. Never shared with our servers beyond authentication — treat these like a password.
+                    </div>
+                  </div>
+                  <div className="p-5">
+                    {generatedKey && (
+                      <div className="mb-5 border-2 border-amber-200 bg-amber-50 rounded-lg p-4">
+                        <div className="text-xs font-semibold text-amber-700 mb-2">
+                          Copy this key now — it won&apos;t be shown again
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <code className="flex-1 text-xs bg-white border border-amber-200 rounded px-3 py-2 font-mono break-all">{generatedKey}</code>
+                          <button onClick={copyGeneratedKey} className="text-xs bg-black text-white px-3 py-2 rounded whitespace-nowrap hover:opacity-85 transition-opacity">
+                            {keyCopied ? '✓ Copied' : 'Copy'}
+                          </button>
+                        </div>
+                        <button onClick={() => setGeneratedKey(null)} className="text-xs text-amber-600 underline mt-2">
+                          Done
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="flex gap-2 mb-5">
+                      <input
+                        type="text"
+                        value={newKeyName}
+                        onChange={e => setNewKeyName(e.target.value)}
+                        placeholder="Key name, e.g. 'Production AWS scanner'"
+                        className="flex-1 px-3 py-2.5 border border-gray-200 rounded-md text-sm outline-none focus:border-black transition-colors"
+                      />
+                      <button
+                        onClick={createApiKey}
+                        disabled={saving}
+                        className="px-5 py-2 bg-black text-white rounded-md text-sm font-medium hover:opacity-85 transition-opacity disabled:opacity-50 whitespace-nowrap"
+                      >
+                        {saving ? 'Generating...' : '+ Generate key'}
+                      </button>
+                    </div>
+
+                    {keysLoading ? (
+                      <p className="text-xs text-gray-400">Loading...</p>
+                    ) : apiKeys.length === 0 ? (
+                      <p className="text-xs text-gray-400">No API keys yet. Generate one to use the ArchAI CLI for Brownfield auto-discover.</p>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        {apiKeys.map(k => (
+                          <div key={k.id} className="flex items-center justify-between px-4 py-3 border border-gray-100 rounded-lg">
+                            <div>
+                              <div className="text-sm font-medium text-black flex items-center gap-2">
+                                {k.name}
+                                {k.revoked_at && <span className="text-[10px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full font-semibold">REVOKED</span>}
+                              </div>
+                              <div className="text-xs text-gray-400 font-mono mt-0.5">{k.key_prefix}...</div>
+                              <div className="text-[11px] text-gray-400 mt-0.5">
+                                Created {new Date(k.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                {k.last_used_at && ` · Last used ${new Date(k.last_used_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`}
+                              </div>
+                            </div>
+                            {!k.revoked_at && (
+                              <button
+                                onClick={() => revokeApiKey(k.id)}
+                                className="text-xs text-red-500 hover:text-red-700 px-3 py-1.5 rounded border border-red-100 hover:bg-red-50 transition-colors"
+                              >
+                                Revoke
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
 

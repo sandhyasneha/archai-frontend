@@ -40,7 +40,8 @@ export async function updateSession(request: NextRequest) {
     path.startsWith('/api/contact') ||
     path.startsWith('/terms') ||
     path.startsWith('/privacy') ||
-    path.startsWith('/doc')
+    path.startsWith('/doc') ||
+    path === '/api/brownfield/ingest'
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone()
