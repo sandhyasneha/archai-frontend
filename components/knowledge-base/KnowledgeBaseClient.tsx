@@ -114,12 +114,18 @@ export default function KnowledgeBaseClient({ user, initialFiles }: Props) {
     setUploading(true)
     const path = `${user.id}/${Date.now()}-${file.name}`
 
+    // Supabase's browser upload path reads the File object's own `.type`
+    // property directly (via FormData) rather than an options override, so
+    // for .tf files (which browsers report as application/octet-stream,
+    // since there's no registered MIME type for Terraform) we construct a
+    // fresh File with the type corrected before uploading.
+    const uploadableFile = file.name.endsWith('.tf')
+      ? new File([file], file.name, { type: 'text/plain' })
+      : file
+
     const { error } = await supabase.storage
       .from('knowledge-base')
-      .upload(path, file, {
-        upsert: false,
-        contentType: file.name.endsWith('.tf') ? 'text/plain' : file.type || 'application/octet-stream',
-      })
+      .upload(path, uploadableFile, { upsert: false })
 
     if (error) {
       showToast('Upload failed: ' + error.message)
