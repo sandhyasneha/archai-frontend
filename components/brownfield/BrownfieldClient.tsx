@@ -91,6 +91,7 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
   const [step, setStep] = useState<Step>('input')
   const [inputType, setInputType] = useState<InputType>('terraform')
   const [targetCloud, setTargetCloud] = useState<TargetCloud>('aws')
+  const [sourceCloud, setSourceCloud] = useState<TargetCloud>('aws')
   const [inputContent, setInputContent] = useState('')
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState<'audit' | 'plan' | 'terraform'>('audit')
@@ -311,9 +312,28 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
                 </div>
               </div>
 
+              {/* Source cloud — only meaningful for auto-discover, since the
+                  other input types have their source inferred from the
+                  pasted content itself by the Scanner agent. */}
+              {inputType === 'auto_discover' && (
+                <div className="mb-5">
+                  <label className="block text-xs font-medium text-gray-600 mb-2">Source cloud (to scan)</label>
+                  <div className="flex gap-2">
+                    {(['aws', 'azure', 'gcp'] as TargetCloud[]).map(c => (
+                      <button key={c} onClick={() => setSourceCloud(c)}
+                        className={`px-4 py-2 border rounded-md text-sm font-medium transition-colors uppercase ${sourceCloud === c ? 'border-black bg-black text-white' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Target cloud */}
               <div className="mb-5">
-                <label className="block text-xs font-medium text-gray-600 mb-2">Target cloud provider</label>
+                <label className="block text-xs font-medium text-gray-600 mb-2">
+                  {inputType === 'auto_discover' ? 'Target cloud (to migrate to)' : 'Target cloud provider'}
+                </label>
                 <div className="flex gap-2">
                   {(['aws', 'azure', 'gcp'] as TargetCloud[]).map(c => (
                     <button key={c} onClick={() => setTargetCloud(c)}
@@ -331,7 +351,7 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
                     <span className="text-sm font-semibold text-black">Auto-discover with the ArchAI CLI</span>
                   </div>
                   <p className="text-xs text-gray-500 mb-4 leading-relaxed">
-                    Instead of pasting Terraform, scan your real {targetCloud.toUpperCase()} resources directly.
+                    Instead of pasting Terraform, scan your real {sourceCloud.toUpperCase()} resources directly.
                     The CLI runs entirely on your machine using your own cloud credentials — ArchAI never sees them,
                     only the resulting resource metadata.
                   </p>
@@ -348,7 +368,11 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
                     <div>
                       <div className="text-[11px] font-semibold text-gray-500 mb-1">3. Run a scan</div>
                       <code className="block bg-black text-white text-xs px-3 py-2 rounded font-mono whitespace-pre-wrap break-all">
-                        {`archai-cli scan --source ${targetCloud} --target ${targetCloud} --api-key <your-key>`}
+                        {`archai-cli scan --source ${sourceCloud} --target ${targetCloud} ${
+                          sourceCloud === 'aws' ? '--region us-east-1' :
+                          sourceCloud === 'azure' ? '--subscription <subscription-id>' :
+                          '--project <project-id>'
+                        } --api-key <your-key>`}
                       </code>
                     </div>
                   </div>
