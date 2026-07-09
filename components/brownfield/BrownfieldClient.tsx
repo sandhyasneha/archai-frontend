@@ -16,7 +16,7 @@ interface Props {
 }
 
 type Step = 'input' | 'scanning' | 'results'
-type InputType = 'terraform' | 'tfstate' | 'description'
+type InputType = 'terraform' | 'tfstate' | 'description' | 'auto_discover'
 type TargetCloud = 'aws' | 'azure' | 'gcp'
 
 interface AgentState {
@@ -301,6 +301,7 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
                     { id: 'terraform', label: 'Terraform (.tf)' },
                     { id: 'tfstate', label: 'State file (.tfstate)' },
                     { id: 'description', label: 'Plain English' },
+                    { id: 'auto_discover', label: '⚡ Auto-discover (CLI)' },
                   ] as { id: InputType; label: string }[]).map(t => (
                     <button key={t.id} onClick={() => setInputType(t.id)}
                       className={`px-4 py-2 border rounded-md text-sm font-medium transition-colors ${inputType === t.id ? 'border-black bg-black text-white' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
@@ -323,32 +324,70 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
                 </div>
               </div>
 
-              {/* Input content */}
-              <div className="mb-5">
-                <label className="block text-xs font-medium text-gray-600 mb-2">
-                  {inputType === 'terraform' ? 'Paste your Terraform code' :
-                   inputType === 'tfstate' ? 'Paste your tfstate JSON' :
-                   'Describe your current infrastructure'}
-                </label>
-                <textarea
-                  value={inputContent}
-                  onChange={e => setInputContent(e.target.value)}
-                  rows={12}
-                  placeholder={
-                    inputType === 'terraform' ? 'resource "aws_instance" "web" {\n  ami           = "ami-12345"\n  instance_type = "t2.micro"\n  ...\n}' :
-                    inputType === 'tfstate' ? '{\n  "version": 4,\n  "resources": [...]\n}' :
-                    'e.g. We have 3 EC2 t2.micro instances running a Node.js app, a MySQL RDS db.t2.small that is publicly accessible, and an S3 bucket without encryption...'
-                  }
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm outline-none focus:border-black transition-colors resize-none font-mono"
-                />
-              </div>
+              {inputType === 'auto_discover' ? (
+                <div className="border border-gray-100 rounded-xl p-5 bg-gray-50">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-lg">⚡</span>
+                    <span className="text-sm font-semibold text-black">Auto-discover with the ArchAI CLI</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mb-4 leading-relaxed">
+                    Instead of pasting Terraform, scan your real {targetCloud.toUpperCase()} resources directly.
+                    The CLI runs entirely on your machine using your own cloud credentials — ArchAI never sees them,
+                    only the resulting resource metadata.
+                  </p>
 
-              {error && <p className="text-xs text-red-500 bg-red-50 px-3 py-2 rounded-md mb-4">{error}</p>}
+                  <div className="flex flex-col gap-3">
+                    <div>
+                      <div className="text-[11px] font-semibold text-gray-500 mb-1">1. Get an API key</div>
+                      <a href="/settings" className="text-xs text-black underline">Settings → API Keys → Generate key</a>
+                    </div>
+                    <div>
+                      <div className="text-[11px] font-semibold text-gray-500 mb-1">2. Install the CLI</div>
+                      <code className="block bg-black text-white text-xs px-3 py-2 rounded font-mono">npm install -g archai-cli</code>
+                    </div>
+                    <div>
+                      <div className="text-[11px] font-semibold text-gray-500 mb-1">3. Run a scan</div>
+                      <code className="block bg-black text-white text-xs px-3 py-2 rounded font-mono whitespace-pre-wrap break-all">
+                        {`archai-cli scan --source ${targetCloud} --target ${targetCloud} --api-key <your-key>`}
+                      </code>
+                    </div>
+                  </div>
 
-              <button onClick={runAnalysis}
-                className="px-5 py-2.5 bg-black text-white rounded-md text-sm font-medium hover:opacity-85 transition-opacity">
-                Analyse infrastructure →
-              </button>
+                  <p className="text-[11px] text-gray-400 mt-4">
+                    The scan runs independently in your terminal — once it completes, the migration will appear
+                    automatically on your Dashboard under &quot;Recent brownfield migrations&quot;. No need to wait on this page.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* Input content */}
+                  <div className="mb-5">
+                    <label className="block text-xs font-medium text-gray-600 mb-2">
+                      {inputType === 'terraform' ? 'Paste your Terraform code' :
+                       inputType === 'tfstate' ? 'Paste your tfstate JSON' :
+                       'Describe your current infrastructure'}
+                    </label>
+                    <textarea
+                      value={inputContent}
+                      onChange={e => setInputContent(e.target.value)}
+                      rows={12}
+                      placeholder={
+                        inputType === 'terraform' ? 'resource "aws_instance" "web" {\n  ami           = "ami-12345"\n  instance_type = "t2.micro"\n  ...\n}' :
+                        inputType === 'tfstate' ? '{\n  "version": 4,\n  "resources": [...]\n}' :
+                        'e.g. We have 3 EC2 t2.micro instances running a Node.js app, a MySQL RDS db.t2.small that is publicly accessible, and an S3 bucket without encryption...'
+                      }
+                      className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm outline-none focus:border-black transition-colors resize-none font-mono"
+                    />
+                  </div>
+
+                  {error && <p className="text-xs text-red-500 bg-red-50 px-3 py-2 rounded-md mb-4">{error}</p>}
+
+                  <button onClick={runAnalysis}
+                    className="px-5 py-2.5 bg-black text-white rounded-md text-sm font-medium hover:opacity-85 transition-opacity">
+                    Analyse infrastructure →
+                  </button>
+                </>
+              )}
             </div>
           )}
 
