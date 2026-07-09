@@ -16,7 +16,7 @@ interface Props {
 }
 
 type Step = 'input' | 'scanning' | 'results'
-type InputType = 'terraform' | 'tfstate' | 'description' | 'auto_discover'
+type InputType = 'terraform' | 'tfstate' | 'description' | 'auto_discover' | 'connect_aws'
 type TargetCloud = 'aws' | 'azure' | 'gcp'
 
 interface AgentState {
@@ -107,6 +107,12 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
   const [migrationPlan, setMigrationPlan] = useState<MigrationPlan | null>(null)
   const [terraformOutput, setTerraformOutput] = useState('')
   const [copied, setCopied] = useState(false)
+  const [connectStep, setConnectStep] = useState<'start' | 'awaiting-arn' | 'connected'>('start')
+  const [connectionId, setConnectionId] = useState<string | null>(null)
+  const [quickCreateUrl, setQuickCreateUrl] = useState('')
+  const [roleArnInput, setRoleArnInput] = useState('')
+  const [connectError, setConnectError] = useState('')
+  const [connectLoading, setConnectLoading] = useState(false)
 
   async function runAnalysis() {
     if (!inputContent.trim()) { setError('Please provide your infrastructure code or description.'); return }
@@ -185,6 +191,72 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
     navigator.clipboard.writeText(terraformOutput)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  async function startAwsConnect() {
+    setConnectError('')
+    setConnectLoading(true)
+    try {
+      const res = await fetch('/api/aws-connect/init', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ region: 'us-east-1' }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setConnectError(data.error || 'Failed to start connection'); setConnectLoading(false); return }
+      setConnectionId(data.connection_id)
+      setQuickCreateUrl(data.quick_create_url)
+      setConnectStep('awaiting-arn')
+      window.open(data.quick_create_url, '_blank')
+    } catch {
+      setConnectError('Failed to start connection')
+    }
+    setConnectLoading(false)
+  }
+
+  async function confirmAwsConnect() {
+    if (!connectionId || !roleArnInput.trim()) return
+    setConnectError('')
+    setConnectLoading(true)
+    try {
+      const res = await fetch('/api/aws-connect/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ connection_id: connectionId, role_arn: roleArnInput.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setConnectError(data.message || data.error || 'Could not verify this role')
+        setConnectLoading(false)
+        return
+      }
+      setConnectStep('connected')
+    } catch {
+      setConnectError('Failed to verify connection')
+    }
+    setConnectLoading(false)
+  }
+
+  async function runAwsConnectScan() {
+    if (!connectionId) return
+    setConnectError('')
+    setConnectLoading(true)
+    try {
+      const res = await fetch('/api/aws-connect/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ connection_id: connectionId, target_cloud: targetCloud }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setConnectError(data.message || data.error || 'Scan failed'); setConnectLoading(false); return }
+      if (data.scan_id) {
+        window.location.href = `/brownfield/${data.scan_id}`
+        return
+      }
+    } catch {
+      setConnectError('Scan failed')
+    }
+    setConnectLoading(false)
   }
 
   function downloadTerraform() {
@@ -303,6 +375,7 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
                     { id: 'tfstate', label: 'State file (.tfstate)' },
                     { id: 'description', label: 'Plain English' },
                     { id: 'auto_discover', label: '⚡ Auto-discover (CLI)' },
+                    { id: 'connect_aws', label: '🔌 Connect AWS (1-click)' },
                   ] as { id: InputType; label: string }[]).map(t => (
                     <button key={t.id} onClick={() => setInputType(t.id)}
                       className={`px-4 py-2 border rounded-md text-sm font-medium transition-colors ${inputType === t.id ? 'border-black bg-black text-white' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
@@ -332,7 +405,7 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
               {/* Target cloud */}
               <div className="mb-5">
                 <label className="block text-xs font-medium text-gray-600 mb-2">
-                  {inputType === 'auto_discover' ? 'Target cloud (to migrate to)' : 'Target cloud provider'}
+                  {(inputType === 'auto_discover' || inputType === 'connect_aws') ? 'Target cloud (to migrate to)' : 'Target cloud provider'}
                 </label>
                 <div className="flex gap-2">
                   {(['aws', 'azure', 'gcp'] as TargetCloud[]).map(c => (
@@ -381,6 +454,74 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
                     The scan runs independently in your terminal — once it completes, the migration will appear
                     automatically on your Dashboard under &quot;Recent brownfield migrations&quot;. No need to wait on this page.
                   </p>
+                </div>
+              ) : inputType === 'connect_aws' ? (
+                <div className="border border-gray-100 rounded-xl p-5 bg-gray-50">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-lg">🔌</span>
+                    <span className="text-sm font-semibold text-black">Connect your AWS account</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mb-4 leading-relaxed">
+                    One-click, no local setup. ArchAI opens the official AWS Console with a pre-filled CloudFormation
+                    stack that creates a <strong>read-only</strong> role — no write or delete access anywhere. Revoke
+                    it anytime by deleting the stack in your AWS account.
+                  </p>
+
+                  {connectError && (
+                    <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-md px-3 py-2 mb-4">{connectError}</p>
+                  )}
+
+                  {connectStep === 'start' && (
+                    <button
+                      onClick={startAwsConnect}
+                      disabled={connectLoading}
+                      className="px-5 py-2.5 bg-black text-white rounded-md text-sm font-medium hover:opacity-85 transition-opacity disabled:opacity-50"
+                    >
+                      {connectLoading ? 'Starting...' : 'Launch Stack in AWS Console →'}
+                    </button>
+                  )}
+
+                  {connectStep === 'awaiting-arn' && (
+                    <div className="flex flex-col gap-3">
+                      <p className="text-xs text-gray-500">
+                        A new tab opened to AWS CloudFormation with the stack pre-filled — click{' '}
+                        <strong>Create stack</strong> there. Once it finishes (usually under a minute), open the{' '}
+                        <strong>Outputs</strong> tab and copy the <code className="bg-gray-100 px-1 rounded">RoleArn</code> value.
+                      </p>
+                      <a href={quickCreateUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-black underline">
+                        Re-open the AWS Console link
+                      </a>
+                      <input
+                        type="text"
+                        value={roleArnInput}
+                        onChange={e => setRoleArnInput(e.target.value)}
+                        placeholder="arn:aws:iam::123456789012:role/ArchAI-ReadOnly-..."
+                        className="w-full px-3 py-2.5 border border-gray-200 rounded-md text-sm font-mono outline-none focus:border-black transition-colors"
+                      />
+                      <button
+                        onClick={confirmAwsConnect}
+                        disabled={connectLoading || !roleArnInput.trim()}
+                        className="px-5 py-2.5 bg-black text-white rounded-md text-sm font-medium hover:opacity-85 transition-opacity disabled:opacity-50 self-start"
+                      >
+                        {connectLoading ? 'Verifying...' : 'Verify & Connect'}
+                      </button>
+                    </div>
+                  )}
+
+                  {connectStep === 'connected' && (
+                    <div className="flex flex-col gap-3">
+                      <p className="text-xs text-green-700 bg-green-50 border border-green-100 rounded-md px-3 py-2">
+                        ✓ Connected. ArchAI can now run read-only scans against this AWS account.
+                      </p>
+                      <button
+                        onClick={runAwsConnectScan}
+                        disabled={connectLoading}
+                        className="px-5 py-2.5 bg-black text-white rounded-md text-sm font-medium hover:opacity-85 transition-opacity disabled:opacity-50 self-start"
+                      >
+                        {connectLoading ? 'Scanning...' : 'Run scan now →'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <>

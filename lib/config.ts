@@ -10,6 +10,15 @@ export const config = {
   app: {
     url: process.env.NEXT_PUBLIC_APP_URL!,
   },
+  aws: {
+    // ArchAI's own AWS identity, used ONLY to call sts:AssumeRole into a
+    // customer's cross-account role. This identity itself should have no
+    // permissions in its own account beyond sts:AssumeRole — all actual
+    // read access comes from the role the customer creates and controls.
+    access_key_id: process.env.ARCHAI_AWS_ACCESS_KEY_ID!,
+    secret_access_key: process.env.ARCHAI_AWS_SECRET_ACCESS_KEY!,
+    account_id: process.env.ARCHAI_AWS_ACCOUNT_ID!,
+  },
 }
 
 // Blocked personal email domains
