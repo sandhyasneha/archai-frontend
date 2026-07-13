@@ -41,7 +41,8 @@ export async function updateSession(request: NextRequest) {
     path.startsWith('/terms') ||
     path.startsWith('/privacy') ||
     path.startsWith('/doc') ||
-    path === '/api/brownfield/ingest'
+    path === '/api/brownfield/ingest' ||
+    path === '/api/azure-connect/callback'
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone()

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 interface UserData {
@@ -16,7 +16,7 @@ interface Props {
 }
 
 type Step = 'input' | 'scanning' | 'results'
-type InputType = 'terraform' | 'tfstate' | 'description' | 'auto_discover' | 'connect_aws'
+type InputType = 'terraform' | 'tfstate' | 'description' | 'auto_discover' | 'connect_aws' | 'connect_azure'
 type TargetCloud = 'aws' | 'azure' | 'gcp'
 
 interface AgentState {
@@ -113,6 +113,11 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
   const [roleArnInput, setRoleArnInput] = useState('')
   const [connectError, setConnectError] = useState('')
   const [connectLoading, setConnectLoading] = useState(false)
+  const [azureStep, setAzureStep] = useState<'start' | 'awaiting-rbac' | 'connected'>('start')
+  const [azureConnectionId, setAzureConnectionId] = useState<string | null>(null)
+  const [azureSubscriptionId, setAzureSubscriptionId] = useState('')
+  const [azureError, setAzureError] = useState('')
+  const [azureLoading, setAzureLoading] = useState(false)
 
   async function runAnalysis() {
     if (!inputContent.trim()) { setError('Please provide your infrastructure code or description.'); return }
@@ -191,6 +196,85 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
     navigator.clipboard.writeText(terraformOutput)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const azureStepParam = params.get('azure_step')
+    if (!azureStepParam) return
+
+    queueMicrotask(() => {
+      setInputType('connect_azure')
+      if (azureStepParam === 'rbac' && params.get('connection_id')) {
+        setAzureConnectionId(params.get('connection_id'))
+        setAzureStep('awaiting-rbac')
+      } else if (azureStepParam === 'error') {
+        setAzureError(params.get('message') || 'Admin consent was not completed')
+      }
+    })
+    // Clean the URL so a page refresh doesn't replay this state.
+    window.history.replaceState({}, '', window.location.pathname)
+  }, [])
+
+  async function startAzureConnect() {
+    setAzureError('')
+    setAzureLoading(true)
+    try {
+      const res = await fetch('/api/azure-connect/init', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) { setAzureError(data.error || 'Failed to start connection'); setAzureLoading(false); return }
+      // Full navigation, same tab — OAuth consent naturally redirects back
+      // here, so there's no multi-tab state to keep in sync.
+      window.location.href = data.admin_consent_url
+    } catch {
+      setAzureError('Failed to start connection')
+      setAzureLoading(false)
+    }
+  }
+
+  async function verifyAzureConnect() {
+    if (!azureConnectionId || !azureSubscriptionId.trim()) return
+    setAzureError('')
+    setAzureLoading(true)
+    try {
+      const res = await fetch('/api/azure-connect/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ connection_id: azureConnectionId, subscription_id: azureSubscriptionId.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setAzureError(data.message || data.error || 'Could not verify this connection')
+        setAzureLoading(false)
+        return
+      }
+      setAzureStep('connected')
+    } catch {
+      setAzureError('Failed to verify connection')
+    }
+    setAzureLoading(false)
+  }
+
+  async function runAzureConnectScan() {
+    if (!azureConnectionId) return
+    setAzureError('')
+    setAzureLoading(true)
+    try {
+      const res = await fetch('/api/azure-connect/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ connection_id: azureConnectionId, target_cloud: targetCloud }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setAzureError(data.message || data.error || 'Scan failed'); setAzureLoading(false); return }
+      if (data.scan_id) {
+        window.location.href = `/brownfield/${data.scan_id}`
+        return
+      }
+    } catch {
+      setAzureError('Scan failed')
+    }
+    setAzureLoading(false)
   }
 
   async function startAwsConnect() {
@@ -376,6 +460,7 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
                     { id: 'description', label: 'Plain English' },
                     { id: 'auto_discover', label: '⚡ Auto-discover (CLI)' },
                     { id: 'connect_aws', label: '🔌 Connect AWS (1-click)' },
+                    { id: 'connect_azure', label: '🔷 Connect Azure (1-click)' },
                   ] as { id: InputType; label: string }[]).map(t => (
                     <button key={t.id} onClick={() => setInputType(t.id)}
                       className={`px-4 py-2 border rounded-md text-sm font-medium transition-colors ${inputType === t.id ? 'border-black bg-black text-white' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
@@ -405,7 +490,7 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
               {/* Target cloud */}
               <div className="mb-5">
                 <label className="block text-xs font-medium text-gray-600 mb-2">
-                  {(inputType === 'auto_discover' || inputType === 'connect_aws') ? 'Target cloud (to migrate to)' : 'Target cloud provider'}
+                  {(inputType === 'auto_discover' || inputType === 'connect_aws' || inputType === 'connect_azure') ? 'Target cloud (to migrate to)' : 'Target cloud provider'}
                 </label>
                 <div className="flex gap-2">
                   {(['aws', 'azure', 'gcp'] as TargetCloud[]).map(c => (
@@ -519,6 +604,75 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
                         className="px-5 py-2.5 bg-black text-white rounded-md text-sm font-medium hover:opacity-85 transition-opacity disabled:opacity-50 self-start"
                       >
                         {connectLoading ? 'Scanning...' : 'Run scan now →'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : inputType === 'connect_azure' ? (
+                <div className="border border-gray-100 rounded-xl p-5 bg-gray-50">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-lg">🔷</span>
+                    <span className="text-sm font-semibold text-black">Connect your Azure account</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mb-4 leading-relaxed">
+                    Sign in with Microsoft to grant ArchAI read-only access. Two steps: your admin consents via the
+                    official Microsoft login, then assigns the <strong>Reader</strong> role to ArchAI in your
+                    subscription — no write or delete access anywhere.
+                  </p>
+
+                  {azureError && (
+                    <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-md px-3 py-2 mb-4">{azureError}</p>
+                  )}
+
+                  {azureStep === 'start' && (
+                    <button
+                      onClick={startAzureConnect}
+                      disabled={azureLoading}
+                      className="px-5 py-2.5 bg-black text-white rounded-md text-sm font-medium hover:opacity-85 transition-opacity disabled:opacity-50"
+                    >
+                      {azureLoading ? 'Starting...' : 'Connect with Microsoft →'}
+                    </button>
+                  )}
+
+                  {azureStep === 'awaiting-rbac' && (
+                    <div className="flex flex-col gap-3">
+                      <p className="text-xs text-gray-500">
+                        Admin consent complete. Now, in the <strong>Azure Portal</strong>, go to your Subscription →{' '}
+                        <strong>Access control (IAM)</strong> → <strong>Add role assignment</strong> → select{' '}
+                        <strong>Reader</strong> → assign it to <strong>ArchAI</strong> (search by name). Then enter
+                        your Subscription ID below.
+                      </p>
+                      <a href="https://portal.azure.com" target="_blank" rel="noopener noreferrer" className="text-xs text-black underline">
+                        Open Azure Portal
+                      </a>
+                      <input
+                        type="text"
+                        value={azureSubscriptionId}
+                        onChange={e => setAzureSubscriptionId(e.target.value)}
+                        placeholder="00000000-0000-0000-0000-000000000000"
+                        className="w-full px-3 py-2.5 border border-gray-200 rounded-md text-sm font-mono outline-none focus:border-black transition-colors"
+                      />
+                      <button
+                        onClick={verifyAzureConnect}
+                        disabled={azureLoading || !azureSubscriptionId.trim()}
+                        className="px-5 py-2.5 bg-black text-white rounded-md text-sm font-medium hover:opacity-85 transition-opacity disabled:opacity-50 self-start"
+                      >
+                        {azureLoading ? 'Verifying...' : 'Verify & Connect'}
+                      </button>
+                    </div>
+                  )}
+
+                  {azureStep === 'connected' && (
+                    <div className="flex flex-col gap-3">
+                      <p className="text-xs text-green-700 bg-green-50 border border-green-100 rounded-md px-3 py-2">
+                        ✓ Connected. ArchAI can now run read-only scans against this Azure subscription.
+                      </p>
+                      <button
+                        onClick={runAzureConnectScan}
+                        disabled={azureLoading}
+                        className="px-5 py-2.5 bg-black text-white rounded-md text-sm font-medium hover:opacity-85 transition-opacity disabled:opacity-50 self-start"
+                      >
+                        {azureLoading ? 'Scanning...' : 'Run scan now →'}
                       </button>
                     </div>
                   )}

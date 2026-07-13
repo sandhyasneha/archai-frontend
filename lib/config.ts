@@ -19,6 +19,15 @@ export const config = {
     secret_access_key: process.env.ARCHAI_AWS_SECRET_ACCESS_KEY!,
     account_id: process.env.ARCHAI_AWS_ACCOUNT_ID!,
   },
+  azure: {
+    // ArchAI's own multi-tenant Azure AD app registration. Admin consent
+    // creates this app's Service Principal in the customer's tenant, but
+    // that alone grants no resource access — the customer must separately
+    // assign the Reader RBAC role to it in their subscription's IAM.
+    client_id: process.env.ARCHAI_AZURE_CLIENT_ID!,
+    client_secret: process.env.ARCHAI_AZURE_CLIENT_SECRET!,
+    tenant_id: process.env.ARCHAI_AZURE_TENANT_ID!,
+  },
 }
 
 // Blocked personal email domains
