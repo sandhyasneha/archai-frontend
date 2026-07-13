@@ -90,6 +90,14 @@ export async function POST(req: NextRequest) {
   const { target_cloud, scan_result } = parsed.data
   const scanResult = scan_result as ScanResult
 
+  if (scanResult.total_resources === 0) {
+    return Response.json({
+      error: 'no_resources_found',
+      message: `No resources were found in ${scanResult.region}. This usually means either the account is genuinely empty, or the scanning credentials don't have permission to list resources there.`,
+      hint: 'Confirm real resources exist in this account/region and that your local credentials have the required read permissions, then try again.',
+    }, { status: 422 })
+  }
+
   // Fetch KB context, same as the pasted-input flow.
   let kbContext = ''
   try {

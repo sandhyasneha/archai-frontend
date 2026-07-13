@@ -62,6 +62,14 @@ export async function POST(req: NextRequest) {
     const { resources, warnings } = await scanAzureWithToken(connection.subscription_id, token)
     const scanResult = buildScanResult(resources)
 
+    if (scanResult.total_resources === 0) {
+      return Response.json({
+        error: 'no_resources_found',
+        message: `No resources were found in subscription ${connection.subscription_id}. This usually means either the subscription is genuinely empty, or the Reader role assignment doesn't fully cover it yet (RBAC changes can take a few minutes to propagate).${warnings.length > 0 ? ' Details: ' + warnings.join('; ') : ''}`,
+        hint: 'Confirm real resources exist in this subscription and that the Reader role assignment has finished propagating, then try again.',
+      }, { status: 422 })
+    }
+
     if (warnings.length > 0) {
       console.error('Azure connect scan warnings:', warnings)
     }

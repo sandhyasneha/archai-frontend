@@ -62,6 +62,14 @@ export async function POST(req: NextRequest) {
     const { resources, warnings } = await scanAWSWithAssumedRole(connection.region, creds)
     const scanResult = buildScanResult(connection.region, resources)
 
+    if (scanResult.total_resources === 0) {
+      return Response.json({
+        error: 'no_resources_found',
+        message: `No resources were found in ${connection.region}. This usually means either the account is genuinely empty, or the connected role doesn't have permission to list resources in this region.${warnings.length > 0 ? ' Details: ' + warnings.join('; ') : ''}`,
+        hint: 'Confirm real resources exist in this region/account, and that the Reader permissions cover them, then try again.',
+      }, { status: 422 })
+    }
+
     if (warnings.length > 0) {
       console.error('AWS connect scan warnings:', warnings)
     }
