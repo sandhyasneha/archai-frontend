@@ -34,7 +34,14 @@ export async function getGcpAuthClient(projectId: string) {
   const auth = new GoogleAuth({
     credentials: getCredentials(),
     projectId,
-    scopes: ['https://www.googleapis.com/auth/cloud-platform.read-only'],
+    // Note: 'cloud-platform.read-only' has inconsistent support across
+    // older GCP APIs (Compute Engine among them) — Google's own client
+    // libraries default to the broader 'cloud-platform' scope even for
+    // read-only use. Actual enforcement of read-only access still comes
+    // entirely from the Viewer IAM role the customer grants, not from
+    // this OAuth scope — this widening doesn't grant any extra ability
+    // beyond what Viewer already permits.
+    scopes: ['https://www.googleapis.com/auth/cloud-platform'],
   })
   return auth.getClient()
 }
