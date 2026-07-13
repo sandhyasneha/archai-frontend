@@ -41,6 +41,9 @@ export async function POST(req: NextRequest) {
       error: 'Could not assume this role',
       message: result.error,
       hint: 'Double-check the Role ARN was copied exactly from the CloudFormation Outputs tab, and that the stack finished creating successfully.',
+      debug_connection_id: connection_id,
+      debug_external_id_used: connection.external_id,
+      debug_role_arn_used: role_arn,
     }, { status: 400 })
   }
 
