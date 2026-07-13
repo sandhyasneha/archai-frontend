@@ -118,6 +118,8 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
   const [azureSubscriptionId, setAzureSubscriptionId] = useState('')
   const [azureError, setAzureError] = useState('')
   const [azureLoading, setAzureLoading] = useState(false)
+  const [azureSubs, setAzureSubs] = useState<{ subscriptionId: string; displayName: string }[]>([])
+  const [azureSubsLoading, setAzureSubsLoading] = useState(false)
 
   async function runAnalysis() {
     if (!inputContent.trim()) { setError('Please provide your infrastructure code or description.'); return }
@@ -215,6 +217,31 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
     // Clean the URL so a page refresh doesn't replay this state.
     window.history.replaceState({}, '', window.location.pathname)
   }, [])
+
+  async function detectAzureSubscriptions(connectionId: string) {
+    setAzureSubsLoading(true)
+    try {
+      const res = await fetch('/api/azure-connect/list-subscriptions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ connection_id: connectionId }),
+      })
+      const data = await res.json()
+      const subs = data.subscriptions ?? []
+      setAzureSubs(subs)
+      if (subs.length === 1) setAzureSubscriptionId(subs[0].subscriptionId)
+    } catch {
+      // Silent — falls back to manual entry, no need to alarm the user
+      // over a convenience feature failing.
+    }
+    setAzureSubsLoading(false)
+  }
+
+  useEffect(() => {
+    if (azureStep === 'awaiting-rbac' && azureConnectionId) {
+      queueMicrotask(() => { detectAzureSubscriptions(azureConnectionId) })
+    }
+  }, [azureStep, azureConnectionId])
 
   async function startAzureConnect() {
     setAzureError('')
@@ -639,19 +666,53 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
                       <p className="text-xs text-gray-500">
                         Admin consent complete. Now, in the <strong>Azure Portal</strong>, go to your Subscription →{' '}
                         <strong>Access control (IAM)</strong> → <strong>Add role assignment</strong> → select{' '}
-                        <strong>Reader</strong> → assign it to <strong>ArchAI</strong> (search by name). Then enter
-                        your Subscription ID below.
+                        <strong>Reader</strong> → assign it to <strong>ArchAI</strong> (search by name).
                       </p>
                       <a href="https://portal.azure.com" target="_blank" rel="noopener noreferrer" className="text-xs text-black underline">
                         Open Azure Portal
                       </a>
-                      <input
-                        type="text"
-                        value={azureSubscriptionId}
-                        onChange={e => setAzureSubscriptionId(e.target.value)}
-                        placeholder="00000000-0000-0000-0000-000000000000"
-                        className="w-full px-3 py-2.5 border border-gray-200 rounded-md text-sm font-mono outline-none focus:border-black transition-colors"
-                      />
+
+                      {azureSubsLoading ? (
+                        <p className="text-xs text-gray-400">Checking for subscriptions ArchAI can see...</p>
+                      ) : azureSubs.length > 1 ? (
+                        <select
+                          value={azureSubscriptionId}
+                          onChange={e => setAzureSubscriptionId(e.target.value)}
+                          className="w-full px-3 py-2.5 border border-gray-200 rounded-md text-sm outline-none focus:border-black transition-colors"
+                        >
+                          <option value="">Select a subscription...</option>
+                          {azureSubs.map(s => (
+                            <option key={s.subscriptionId} value={s.subscriptionId}>
+                              {s.displayName} ({s.subscriptionId})
+                            </option>
+                          ))}
+                        </select>
+                      ) : azureSubs.length === 1 ? (
+                        <p className="text-xs text-green-700 bg-green-50 border border-green-100 rounded-md px-3 py-2">
+                          ✓ Detected: <strong>{azureSubs[0].displayName}</strong> ({azureSubs[0].subscriptionId})
+                        </p>
+                      ) : (
+                        <div className="flex flex-col gap-2">
+                          <p className="text-xs text-gray-400">
+                            No subscriptions detected yet — this is expected until Reader is assigned. Once you&apos;ve
+                            assigned it, click below to check again, or paste the Subscription ID manually.
+                          </p>
+                          <button
+                            onClick={() => azureConnectionId && detectAzureSubscriptions(azureConnectionId)}
+                            className="text-xs text-black underline self-start"
+                          >
+                            🔄 Check for subscriptions again
+                          </button>
+                          <input
+                            type="text"
+                            value={azureSubscriptionId}
+                            onChange={e => setAzureSubscriptionId(e.target.value)}
+                            placeholder="Or paste Subscription ID manually: 00000000-0000-0000-0000-000000000000"
+                            className="w-full px-3 py-2.5 border border-gray-200 rounded-md text-sm font-mono outline-none focus:border-black transition-colors"
+                          />
+                        </div>
+                      )}
+
                       <button
                         onClick={verifyAzureConnect}
                         disabled={azureLoading || !azureSubscriptionId.trim()}
