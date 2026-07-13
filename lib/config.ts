@@ -28,6 +28,13 @@ export const config = {
     client_secret: process.env.ARCHAI_AZURE_CLIENT_SECRET!,
     tenant_id: process.env.ARCHAI_AZURE_TENANT_ID!,
   },
+  gcp: {
+    // ArchAI's own GCP service account key (the full JSON key file
+    // content, pasted as-is into this env var). This identity itself
+    // has no project access by default — the customer must add its
+    // email as a Viewer in their own project's IAM for scans to work.
+    service_account_key: process.env.ARCHAI_GCP_SERVICE_ACCOUNT_KEY!,
+  },
 }
 
 // Blocked personal email domains
