@@ -201,6 +201,34 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
   }
 
   useEffect(() => {
+    const hasAzureRedirectInProgress = new URLSearchParams(window.location.search).get('azure_step')
+
+    ;(async () => {
+      try {
+        const res = await fetch('/api/aws-connect/status')
+        const data = await res.json()
+        if (data.connection?.id) {
+          setConnectionId(data.connection.id)
+          setConnectStep('connected')
+        }
+      } catch { /* fall back to normal connect flow */ }
+
+      // Don't override state if the user is mid-way through returning
+      // from the Azure OAuth redirect — that flow takes priority.
+      if (hasAzureRedirectInProgress) return
+
+      try {
+        const res = await fetch('/api/azure-connect/status')
+        const data = await res.json()
+        if (data.connection?.id) {
+          setAzureConnectionId(data.connection.id)
+          setAzureStep('connected')
+        }
+      } catch { /* fall back to normal connect flow */ }
+    })()
+  }, [])
+
+  useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const azureStepParam = params.get('azure_step')
     if (!azureStepParam) return
