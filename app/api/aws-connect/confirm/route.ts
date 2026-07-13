@@ -5,7 +5,6 @@ import { z } from 'zod'
 
 const Schema = z.object({
   connection_id: z.string().uuid(),
-  role_arn: z.string().min(20).regex(/^arn:aws:iam::\d{12}:role\/.+$/, 'Not a valid IAM role ARN'),
 })
 
 export async function POST(req: NextRequest) {
@@ -19,18 +18,21 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: 'Invalid input', details: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { connection_id, role_arn } = parsed.data
+  const { connection_id } = parsed.data
 
   const { data: connection } = await supabase
     .from('aws_connections')
-    .select('id, external_id, user_id')
+    .select('id, external_id, role_arn, user_id')
     .eq('id', connection_id)
     .eq('user_id', user.id)
     .single()
 
   if (!connection) return Response.json({ error: 'Connection not found' }, { status: 404 })
+  if (!connection.role_arn) {
+    return Response.json({ error: 'No Role ARN computed for this connection — try starting the connection again.' }, { status: 400 })
+  }
 
-  const result = await verifyRoleAssumable(role_arn, connection.external_id)
+  const result = await verifyRoleAssumable(connection.role_arn, connection.external_id)
 
   if (!result.ok) {
     await supabase
@@ -40,13 +42,13 @@ export async function POST(req: NextRequest) {
     return Response.json({
       error: 'Could not assume this role',
       message: result.error,
-      hint: 'Double-check the Role ARN was copied exactly from the CloudFormation Outputs tab, and that the stack finished creating successfully.',
+      hint: 'Confirm the CloudFormation stack finished creating successfully (status CREATE_COMPLETE), and that the AWS Account ID you entered matches the account you created the stack in.',
     }, { status: 400 })
   }
 
   await supabase
     .from('aws_connections')
-    .update({ role_arn, status: 'active', verified_at: new Date().toISOString() })
+    .update({ status: 'active', verified_at: new Date().toISOString() })
     .eq('id', connection_id)
 
   return Response.json({ ok: true, assumed_as: result.assumedArn })

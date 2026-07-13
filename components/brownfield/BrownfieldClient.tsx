@@ -110,7 +110,7 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
   const [connectStep, setConnectStep] = useState<'start' | 'awaiting-arn' | 'connected'>('start')
   const [connectionId, setConnectionId] = useState<string | null>(null)
   const [quickCreateUrl, setQuickCreateUrl] = useState('')
-  const [roleArnInput, setRoleArnInput] = useState('')
+  const [awsAccountId, setAwsAccountId] = useState('')
   const [connectError, setConnectError] = useState('')
   const [connectLoading, setConnectLoading] = useState(false)
   const [azureStep, setAzureStep] = useState<'start' | 'awaiting-rbac' | 'connected'>('start')
@@ -305,13 +305,17 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
   }
 
   async function startAwsConnect() {
+    if (!/^\d{12}$/.test(awsAccountId.trim())) {
+      setConnectError('AWS Account ID must be exactly 12 digits')
+      return
+    }
     setConnectError('')
     setConnectLoading(true)
     try {
       const res = await fetch('/api/aws-connect/init', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ region: 'us-east-1' }),
+        body: JSON.stringify({ region: 'us-east-1', account_id: awsAccountId.trim() }),
       })
       const data = await res.json()
       if (!res.ok) { setConnectError(data.error || 'Failed to start connection'); setConnectLoading(false); return }
@@ -326,14 +330,14 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
   }
 
   async function confirmAwsConnect() {
-    if (!connectionId || !roleArnInput.trim()) return
+    if (!connectionId) return
     setConnectError('')
     setConnectLoading(true)
     try {
       const res = await fetch('/api/aws-connect/confirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ connection_id: connectionId, role_arn: roleArnInput.trim() }),
+        body: JSON.stringify({ connection_id: connectionId }),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -584,35 +588,41 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
                   )}
 
                   {connectStep === 'start' && (
-                    <button
-                      onClick={startAwsConnect}
-                      disabled={connectLoading}
-                      className="px-5 py-2.5 bg-black text-white rounded-md text-sm font-medium hover:opacity-85 transition-opacity disabled:opacity-50"
-                    >
-                      {connectLoading ? 'Starting...' : 'Launch Stack in AWS Console →'}
-                    </button>
+                    <div className="flex flex-col gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Your AWS Account ID</label>
+                        <input
+                          type="text"
+                          value={awsAccountId}
+                          onChange={e => setAwsAccountId(e.target.value)}
+                          placeholder="123456789012"
+                          className="w-full px-3 py-2.5 border border-gray-200 rounded-md text-sm font-mono outline-none focus:border-black transition-colors"
+                        />
+                        <p className="text-[11px] text-gray-400 mt-1">Find this in the top-right of the AWS Console, or run `aws sts get-caller-identity`.</p>
+                      </div>
+                      <button
+                        onClick={startAwsConnect}
+                        disabled={connectLoading || !/^\d{12}$/.test(awsAccountId.trim())}
+                        className="px-5 py-2.5 bg-black text-white rounded-md text-sm font-medium hover:opacity-85 transition-opacity disabled:opacity-50 self-start"
+                      >
+                        {connectLoading ? 'Starting...' : 'Launch Stack in AWS Console →'}
+                      </button>
+                    </div>
                   )}
 
                   {connectStep === 'awaiting-arn' && (
                     <div className="flex flex-col gap-3">
                       <p className="text-xs text-gray-500">
                         A new tab opened to AWS CloudFormation with the stack pre-filled — click{' '}
-                        <strong>Create stack</strong> there. Once it finishes (usually under a minute), open the{' '}
-                        <strong>Outputs</strong> tab and copy the <code className="bg-gray-100 px-1 rounded">RoleArn</code> value.
+                        <strong>Create stack</strong> there and wait for it to finish (usually under a minute).
+                        Then just click Verify below — ArchAI already knows the role it needs to check.
                       </p>
                       <a href={quickCreateUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-black underline">
                         Re-open the AWS Console link
                       </a>
-                      <input
-                        type="text"
-                        value={roleArnInput}
-                        onChange={e => setRoleArnInput(e.target.value)}
-                        placeholder="arn:aws:iam::123456789012:role/ArchAI-ReadOnly-..."
-                        className="w-full px-3 py-2.5 border border-gray-200 rounded-md text-sm font-mono outline-none focus:border-black transition-colors"
-                      />
                       <button
                         onClick={confirmAwsConnect}
-                        disabled={connectLoading || !roleArnInput.trim()}
+                        disabled={connectLoading}
                         className="px-5 py-2.5 bg-black text-white rounded-md text-sm font-medium hover:opacity-85 transition-opacity disabled:opacity-50 self-start"
                       >
                         {connectLoading ? 'Verifying...' : 'Verify & Connect'}
