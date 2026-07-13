@@ -226,10 +226,7 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
       })
       const data = await res.json()
       if (!res.ok) {
-        const debugInfo = data.debug_connection_id
-          ? ` [debug: sent connection_id=${data.debug_connection_id} (frontend has ${connectionId}), external_id_used=${data.debug_external_id_used}, role_arn_used=${data.debug_role_arn_used}]`
-          : ''
-        setConnectError((data.message || data.error || 'Could not verify this role') + debugInfo)
+        setConnectError(data.message || data.error || 'Could not verify this role')
         setConnectLoading(false)
         return
       }
