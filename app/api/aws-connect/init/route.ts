@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
 
   const quickCreateUrl =
     `https://console.aws.amazon.com/cloudformation/home?region=${encodeURIComponent(region)}` +
-    `#/stacks/quickcreate?stackName=ArchAI-ReadOnly-Access` +
+    `#/stacks/quickcreate?stackName=ArchAI-ReadOnly-${data.id.slice(0, 8)}` +
     `&templateURL=${encodeURIComponent(templateUrl)}` +
     `&param_ExternalId=${encodeURIComponent(externalId)}`
 
