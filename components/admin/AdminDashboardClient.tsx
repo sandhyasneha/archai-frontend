@@ -99,6 +99,10 @@ export default function AdminDashboardClient({
   const [userPage, setUserPage] = useState(1)
   const USERS_PER_PAGE = 5
 
+  // Overview tab — Recent signups pagination
+  const [signupsPage, setSignupsPage] = useState(1)
+  const SIGNUPS_PER_PAGE = 8
+
   // Contacts tab state
   const [contacts, setContacts] = useState<ContactSubmission[]>([])
   const [contactPage, setContactPage] = useState(1)
@@ -209,6 +213,7 @@ async function deleteContact(id: string) {
   )
   const totalUserPages = Math.ceil(filteredUsers.length / USERS_PER_PAGE)
   const totalContactPages = Math.ceil(contacts.length / CONTACTS_PER_PAGE)
+  const totalSignupsPages = Math.max(1, Math.ceil(authUsers.length / SIGNUPS_PER_PAGE))
 
   return (
     <div className="flex h-screen w-full bg-white overflow-hidden">
@@ -343,7 +348,7 @@ async function deleteContact(id: string) {
                     </tr>
                   </thead>
                   <tbody>
-                    {authUsers.slice(0, 8).map(u => {
+                    {authUsers.slice((signupsPage - 1) * SIGNUPS_PER_PAGE, signupsPage * SIGNUPS_PER_PAGE).map(u => {
                       const sub = getUserSub(u.id)
                       return (
                         <tr key={u.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
@@ -371,6 +376,22 @@ async function deleteContact(id: string) {
                     })}
                   </tbody>
                 </table>
+                {authUsers.length > SIGNUPS_PER_PAGE && (
+                  <div className="flex items-center justify-between px-5 py-3 border-t border-gray-50">
+                    <div className="text-xs text-gray-400">
+                      Showing {Math.min((signupsPage - 1) * SIGNUPS_PER_PAGE + 1, authUsers.length)}–{Math.min(signupsPage * SIGNUPS_PER_PAGE, authUsers.length)} of {authUsers.length} users
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => setSignupsPage(1)} disabled={signupsPage === 1} className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-md disabled:opacity-40 hover:bg-gray-50">First</button>
+                      <button onClick={() => setSignupsPage(p => p - 1)} disabled={signupsPage === 1} className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-md disabled:opacity-40 hover:bg-gray-50">Prev</button>
+                      {Array.from({ length: totalSignupsPages }, (_, i) => i + 1).map(page => (
+                        <button key={page} onClick={() => setSignupsPage(page)} className={`px-2.5 py-1.5 text-xs border rounded-md ${signupsPage === page ? 'bg-black text-white border-black' : 'border-gray-200 hover:bg-gray-50'}`}>{page}</button>
+                      ))}
+                      <button onClick={() => setSignupsPage(p => p + 1)} disabled={signupsPage === totalSignupsPages} className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-md disabled:opacity-40 hover:bg-gray-50">Next</button>
+                      <button onClick={() => setSignupsPage(totalSignupsPages)} disabled={signupsPage === totalSignupsPages} className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-md disabled:opacity-40 hover:bg-gray-50">Last</button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
