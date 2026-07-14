@@ -274,6 +274,10 @@ export default function DocClient() {
                   <p>No — you can migrate from any source cloud to any target cloud (AWS, Azure, or GCP).</p>
                 </div>
                 <div>
+                  <p className="font-medium text-black mb-1">Does my ArchAI login email need to match my AWS, Azure, or GCP account?</p>
+                  <p>No. Your ArchAI sign-in is separate from your cloud provider identity. When you use 1-click Connect, access is granted at the account level — via an IAM role (AWS), an admin-consented app registration (Azure), or an IAM grant to ArchAI&apos;s service account (GCP) — by whoever has sufficient permissions in that cloud console at the time. That person doesn&apos;t need to share an email with your ArchAI account.</p>
+                </div>
+                <div>
                   <p className="font-medium text-black mb-1">Which plan do I need for Brownfield?</p>
                   <p>Team plan or higher.</p>
                 </div>
