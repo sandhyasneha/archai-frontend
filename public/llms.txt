@@ -1,0 +1,33 @@
+# ArchAI
+
+> ArchAI is an AI-powered cloud architecture platform for SMBs. It designs new cloud infrastructure
+> from a plain-English description (Greenfield) and audits/modernises existing infrastructure
+> (Brownfield), producing production-ready Terraform for AWS, Azure, and GCP.
+
+ArchAI replaces manual cloud architecture consulting for small and mid-sized businesses. A four-agent
+AI pipeline (Gatekeeper, Architect, Engineer, Auditor) turns a plain-English infrastructure description
+into validated, deployable Terraform code, complete with a security/compliance audit (SOC 2, GDPR,
+HIPAA, CIS Benchmark), a cost estimate and cross-cloud cost comparison, and a disaster recovery plan.
+
+Brownfield migration (Team plan and up) audits existing infrastructure — provided as Terraform code, a
+state file, a plain-English description, via CLI auto-discovery, or 1-click Connect to a live AWS,
+Azure, or GCP account — and produces a compliance score, a phased migration plan, an Architectural
+Decision Record, and modernised Terraform for any target cloud.
+
+A Knowledge Base lets organisations upload their own naming conventions, approved instance types,
+budget policy, and compliance requirements, which are then enforced automatically in every generated
+blueprint or migration plan.
+
+## Pricing
+- Scout: Free. 3 blueprints/month. AWS only.
+- Pro: $49/month. 25 blueprints/month. AWS, Azure, and GCP.
+- Team: $199/month. 150 blueprints/month. All clouds. Includes Brownfield migration.
+- Enterprise: $1,500/month. Unlimited blueprints. All clouds. SSO/SAML, audit logs, dedicated support.
+
+## Key pages
+- Homepage: https://arch.nexplan.io/
+- Documentation: https://arch.nexplan.io/doc
+- Sign up: https://arch.nexplan.io/register
+
+## Contact
+NexPlan IT LLC — https://nexplanit.com

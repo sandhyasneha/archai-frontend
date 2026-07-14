@@ -1,12 +1,15 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { createClient } from '@/lib/supabase/client'
 
 interface Message {
   role: 'user' | 'assistant'
   content: string
   link?: { url: string; label: string } | null
 }
+
+type LeadStatus = 'hidden' | 'prompt' | 'submitting' | 'done' | 'dismissed'
 
 const KeystoneIcon = ({ size = 22 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -32,11 +35,44 @@ export default function KeystoneWidget() {
   ])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [isAnon, setIsAnon] = useState<boolean | null>(null)
+  const [leadStatus, setLeadStatus] = useState<LeadStatus>('hidden')
+  const [leadEmail, setLeadEmail] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getUser().then(({ data }) => setIsAnon(!data.user))
+  }, [])
+
+  useEffect(() => {
+    const userMessageCount = messages.filter(m => m.role === 'user').length
+    if (isAnon === true && leadStatus === 'hidden' && userMessageCount >= 2) {
+      setLeadStatus('prompt')
+    }
+  }, [messages, isAnon, leadStatus])
+
+  useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
-  }, [messages, open])
+  }, [messages, open, leadStatus])
+
+  async function submitLead() {
+    const email = leadEmail.trim()
+    if (!email) return
+    setLeadStatus('submitting')
+    try {
+      const context = messages.filter(m => m.role === 'user').slice(-2).map(m => m.content).join(' | ')
+      await fetch('/api/keystone/lead', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, context }),
+      })
+    } catch {
+      // best-effort — don't block the conversation on this
+    } finally {
+      setLeadStatus('done')
+    }
+  }
 
   async function send() {
     const text = input.trim()
@@ -121,6 +157,48 @@ export default function KeystoneWidget() {
                 <div className="bg-gray-50 border border-gray-100 rounded-xl px-3.5 py-2.5 text-xs text-gray-400">
                   Keystone is thinking…
                 </div>
+              </div>
+            )}
+
+            {leadStatus === 'prompt' && (
+              <div className="bg-gray-50 border border-gray-100 rounded-xl px-3.5 py-3 flex flex-col gap-2">
+                <div className="text-xs text-gray-600">
+                  Want someone from ArchAI to follow up? Leave your email — totally optional.
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="email"
+                    value={leadEmail}
+                    onChange={e => setLeadEmail(e.target.value)}
+                    placeholder="you@company.com"
+                    className="flex-1 px-2.5 py-1.5 border border-gray-200 rounded-md text-xs outline-none focus:border-black transition-colors bg-white"
+                  />
+                  <button
+                    onClick={submitLead}
+                    disabled={!leadEmail.trim()}
+                    className="px-2.5 py-1.5 bg-black text-white rounded-md text-xs font-medium disabled:opacity-30 hover:opacity-85 transition-opacity"
+                  >
+                    Send
+                  </button>
+                </div>
+                <button
+                  onClick={() => setLeadStatus('dismissed')}
+                  className="text-[11px] text-gray-400 hover:text-gray-600 self-start transition-colors"
+                >
+                  No thanks
+                </button>
+              </div>
+            )}
+
+            {leadStatus === 'submitting' && (
+              <div className="bg-gray-50 border border-gray-100 rounded-xl px-3.5 py-2.5 text-xs text-gray-400">
+                Sending…
+              </div>
+            )}
+
+            {leadStatus === 'done' && (
+              <div className="bg-gray-50 border border-gray-100 rounded-xl px-3.5 py-2.5 text-xs text-gray-500">
+                Thanks — someone from ArchAI will be in touch.
               </div>
             )}
           </div>
