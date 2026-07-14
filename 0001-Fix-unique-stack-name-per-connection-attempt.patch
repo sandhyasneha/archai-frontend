@@ -1,0 +1,41 @@
+From 4ce86e7c1dec33c76ddec73d731ea47b2227c007 Mon Sep 17 00:00:00 2001
+From: ram <chan2006@gmail.com>
+Date: Mon, 13 Jul 2026 04:03:07 +0000
+Subject: [PATCH] Fix: unique stack name per connection attempt
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Root cause of the 'AlreadyExistsException — Stack already exists'
+error: the Quick-Create URL always used the same fixed stack name
+(ArchAI-ReadOnly-Access), so any retry after a first successful
+stack creation would collide with it and fail, forcing a manual
+delete every single time — defeating the whole point of a
+low-friction connect flow.
+
+Fixed by suffixing the stack name with the first 8 characters of
+the connection's own UUID (ArchAI-ReadOnly-<id>), so every distinct
+connection attempt gets its own uniquely-named stack and can never
+collide with a previous one.
+
+Verified: tsc --noEmit clean, next build succeeds.
+---
+ app/api/aws-connect/init/route.ts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/app/api/aws-connect/init/route.ts b/app/api/aws-connect/init/route.ts
+index c3c5f11..64de27b 100644
+--- a/app/api/aws-connect/init/route.ts
++++ b/app/api/aws-connect/init/route.ts
+@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
+ 
+   const quickCreateUrl =
+     `https://console.aws.amazon.com/cloudformation/home?region=${encodeURIComponent(region)}` +
+-    `#/stacks/quickcreate?stackName=ArchAI-ReadOnly-Access` +
++    `#/stacks/quickcreate?stackName=ArchAI-ReadOnly-${data.id.slice(0, 8)}` +
+     `&templateURL=${encodeURIComponent(templateUrl)}` +
+     `&param_ExternalId=${encodeURIComponent(externalId)}`
+ 
+-- 
+2.43.0
+

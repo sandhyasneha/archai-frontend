@@ -1,0 +1,232 @@
+diff --git a/app/api/aws-connect/scan/route.ts b/app/api/aws-connect/scan/route.ts
+index d615e65..b6fca5d 100644
+--- a/app/api/aws-connect/scan/route.ts
++++ b/app/api/aws-connect/scan/route.ts
+@@ -12,6 +12,7 @@ import { z } from 'zod'
+ const Schema = z.object({
+   connection_id: z.string().uuid(),
+   target_cloud: z.enum(['aws', 'azure', 'gcp']),
++  migration_name: z.string().trim().min(1).max(200).nullable().optional(),
+ })
+ 
+ export async function POST(req: NextRequest) {
+@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
+   const parsed = Schema.safeParse(body)
+   if (!parsed.success) return Response.json({ error: 'Invalid input' }, { status: 400 })
+ 
+-  const { connection_id, target_cloud } = parsed.data
++  const { connection_id, target_cloud, migration_name } = parsed.data
+ 
+   const { data: connection } = await supabase
+     .from('aws_connections')
+@@ -104,6 +105,7 @@ export async function POST(req: NextRequest) {
+         input_content: `Live AWS connection scan: ${scanResult.total_resources} resources from ${connection.region}`,
+         source_cloud: 'aws',
+         target_cloud,
++        migration_name: migration_name ?? null,
+         audit_findings: {
+           findings: auditResult.findings,
+           compliance_score: auditResult.compliance_score,
+diff --git a/app/api/azure-connect/scan/route.ts b/app/api/azure-connect/scan/route.ts
+index a8e6717..39a3b4c 100644
+--- a/app/api/azure-connect/scan/route.ts
++++ b/app/api/azure-connect/scan/route.ts
+@@ -12,6 +12,7 @@ import { z } from 'zod'
+ const Schema = z.object({
+   connection_id: z.string().uuid(),
+   target_cloud: z.enum(['aws', 'azure', 'gcp']),
++  migration_name: z.string().trim().min(1).max(200).nullable().optional(),
+ })
+ 
+ export async function POST(req: NextRequest) {
+@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
+   const parsed = Schema.safeParse(body)
+   if (!parsed.success) return Response.json({ error: 'Invalid input' }, { status: 400 })
+ 
+-  const { connection_id, target_cloud } = parsed.data
++  const { connection_id, target_cloud, migration_name } = parsed.data
+ 
+   const { data: connection } = await supabase
+     .from('azure_connections')
+@@ -104,6 +105,7 @@ export async function POST(req: NextRequest) {
+         input_content: `Live Azure connection scan: ${scanResult.total_resources} resources from subscription ${connection.subscription_id}`,
+         source_cloud: 'azure',
+         target_cloud,
++        migration_name: migration_name ?? null,
+         audit_findings: {
+           findings: auditResult.findings,
+           compliance_score: auditResult.compliance_score,
+diff --git a/app/api/brownfield/analyze/route.ts b/app/api/brownfield/analyze/route.ts
+index e3a3f90..655f669 100644
+--- a/app/api/brownfield/analyze/route.ts
++++ b/app/api/brownfield/analyze/route.ts
+@@ -12,6 +12,7 @@ const Schema = z.object({
+   input_content: z.string().min(10).max(10000),
+   input_type: z.enum(['terraform', 'tfstate', 'description']),
+   target_cloud: z.enum(['aws', 'azure', 'gcp']),
++  migration_name: z.string().trim().min(1).max(200).nullable().optional(),
+ })
+ 
+ function encode(data: object): Uint8Array {
+@@ -103,6 +104,7 @@ export async function POST(req: NextRequest) {
+             input_content: input.input_content.slice(0, 5000),
+             source_cloud: scanResult.source_cloud,
+             target_cloud: input.target_cloud,
++            migration_name: input.migration_name ?? null,
+             audit_findings: {
+               findings: auditResult.findings,
+               compliance_score: auditResult.compliance_score,
+diff --git a/app/api/gcp-connect/scan/route.ts b/app/api/gcp-connect/scan/route.ts
+index 8813c3f..0bd3a1a 100644
+--- a/app/api/gcp-connect/scan/route.ts
++++ b/app/api/gcp-connect/scan/route.ts
+@@ -12,6 +12,7 @@ import { z } from 'zod'
+ const Schema = z.object({
+   connection_id: z.string().uuid(),
+   target_cloud: z.enum(['aws', 'azure', 'gcp']),
++  migration_name: z.string().trim().min(1).max(200).nullable().optional(),
+ })
+ 
+ export async function POST(req: NextRequest) {
+@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
+   const parsed = Schema.safeParse(body)
+   if (!parsed.success) return Response.json({ error: 'Invalid input' }, { status: 400 })
+ 
+-  const { connection_id, target_cloud } = parsed.data
++  const { connection_id, target_cloud, migration_name } = parsed.data
+ 
+   const { data: connection } = await supabase
+     .from('gcp_connections')
+@@ -104,6 +105,7 @@ export async function POST(req: NextRequest) {
+         input_content: `Live GCP connection scan: ${scanResult.total_resources} resources from project ${connection.project_id}`,
+         source_cloud: 'gcp',
+         target_cloud,
++        migration_name: migration_name ?? null,
+         audit_findings: {
+           findings: auditResult.findings,
+           compliance_score: auditResult.compliance_score,
+diff --git a/components/brownfield/BrownfieldClient.tsx b/components/brownfield/BrownfieldClient.tsx
+index f1563fb..ba0226c 100644
+--- a/components/brownfield/BrownfieldClient.tsx
++++ b/components/brownfield/BrownfieldClient.tsx
+@@ -93,6 +93,7 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
+   const [targetCloud, setTargetCloud] = useState<TargetCloud>('aws')
+   const [sourceCloud, setSourceCloud] = useState<TargetCloud>('aws')
+   const [inputContent, setInputContent] = useState('')
++  const [migrationName, setMigrationName] = useState('')
+   const [error, setError] = useState('')
+   const [activeTab, setActiveTab] = useState<'audit' | 'plan' | 'terraform'>('audit')
+ 
+@@ -146,7 +147,7 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
+       const response = await fetch('/api/brownfield/analyze', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+-        body: JSON.stringify({ input_content: inputContent, input_type: inputType, target_cloud: targetCloud }),
++        body: JSON.stringify({ input_content: inputContent, input_type: inputType, target_cloud: targetCloud, migration_name: migrationName.trim() || null }),
+       })
+ 
+       if (!response.ok) {
+@@ -334,7 +335,7 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
+       const res = await fetch('/api/azure-connect/scan', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+-        body: JSON.stringify({ connection_id: azureConnectionId, target_cloud: targetCloud }),
++        body: JSON.stringify({ connection_id: azureConnectionId, target_cloud: targetCloud, migration_name: migrationName.trim() || null }),
+       })
+       const data = await res.json()
+       if (!res.ok) { setAzureError(data.message || data.error || 'Scan failed'); setAzureLoading(false); return }
+@@ -389,7 +390,7 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
+       const res = await fetch('/api/gcp-connect/scan', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+-        body: JSON.stringify({ connection_id: gcpConnectionId, target_cloud: targetCloud }),
++        body: JSON.stringify({ connection_id: gcpConnectionId, target_cloud: targetCloud, migration_name: migrationName.trim() || null }),
+       })
+       const data = await res.json()
+       if (!res.ok) { setGcpError(data.message || data.error || 'Scan failed'); setGcpLoading(false); return }
+@@ -459,7 +460,7 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
+       const res = await fetch('/api/aws-connect/scan', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+-        body: JSON.stringify({ connection_id: connectionId, target_cloud: targetCloud }),
++        body: JSON.stringify({ connection_id: connectionId, target_cloud: targetCloud, migration_name: migrationName.trim() || null }),
+       })
+       const data = await res.json()
+       if (!res.ok) { setConnectError(data.message || data.error || 'Scan failed'); setConnectLoading(false); return }
+@@ -580,6 +581,21 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
+                 ArchAI will scan, audit, plan, and generate modernised Terraform for your target cloud.
+               </p>
+ 
++              {/* Migration name — mirrors Greenfield's "Project name" field,
++                  same position: first field on the page. */}
++              <div className="mb-5">
++                <label className="block text-xs font-medium text-gray-600 mb-2">
++                  Migration name
++                </label>
++                <input
++                  type="text"
++                  value={migrationName}
++                  onChange={e => setMigrationName(e.target.value)}
++                  placeholder="e.g. Prod checkout service → GCP"
++                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm outline-none focus:border-black transition-colors"
++                />
++              </div>
++
+               {/* Input type */}
+               <div className="mb-5">
+                 <label className="block text-xs font-medium text-gray-600 mb-2">Input type</label>
+@@ -661,7 +677,7 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
+                           sourceCloud === 'aws' ? '--region us-east-1' :
+                           sourceCloud === 'azure' ? '--subscription <subscription-id>' :
+                           '--project <project-id>'
+-                        } --api-key <your-key>`}
++                        } --api-key <your-key>${migrationName.trim() ? ` --name "${migrationName.trim()}"` : ''}`}
+                       </code>
+                     </div>
+                   </div>
+diff --git a/components/brownfield/BrownfieldDetailClient.tsx b/components/brownfield/BrownfieldDetailClient.tsx
+index b04e70d..ac9810d 100644
+--- a/components/brownfield/BrownfieldDetailClient.tsx
++++ b/components/brownfield/BrownfieldDetailClient.tsx
+@@ -63,6 +63,7 @@ interface MigrationPlan {
+ 
+ interface BrownfieldScan {
+   id: string
++  migration_name?: string | null
+   input_type: string
+   input_content: string
+   source_cloud: string
+@@ -319,7 +320,9 @@ export default function BrownfieldDetailClient({ scan, user }: Props) {
+             {' / '}
+             <a href="/brownfield" className="hover:text-black transition-colors">Brownfield</a>
+             {' / '}
+-            <span className="text-black font-medium">Migration {scan.id.slice(0, 8)}</span>
++            <span className="text-black font-medium">
++              {scan.migration_name?.trim() ? scan.migration_name : `Migration ${scan.id.slice(0, 8)}`}
++            </span>
+           </div>
+           <div className="flex items-center gap-3">
+             <span className="px-2 py-0.5 bg-green-50 text-green-700 rounded-full text-[10px] font-semibold uppercase">
+diff --git a/components/dashboard/BrownfieldTable.tsx b/components/dashboard/BrownfieldTable.tsx
+index c245b56..492a1ec 100644
+--- a/components/dashboard/BrownfieldTable.tsx
++++ b/components/dashboard/BrownfieldTable.tsx
+@@ -6,6 +6,7 @@ interface AuditFindingsShape {
+ 
+ interface BrownfieldScan {
+   id: string
++  migration_name?: string | null
+   source_cloud: string
+   target_cloud: string
+   status: string
+@@ -66,7 +67,9 @@ export default function BrownfieldTable({ scans }: Props) {
+           >
+             <td className="px-5 py-3.5">
+               <div className="text-xs font-medium text-black truncate max-w-xs">
+-                {s.source_cloud?.toUpperCase()} → {s.target_cloud?.toUpperCase()} migration
++                {s.migration_name?.trim()
++                  ? s.migration_name
++                  : `${s.source_cloud?.toUpperCase()} → ${s.target_cloud?.toUpperCase()} migration`}
+               </div>
+               <div className="text-[11px] text-gray-400 mt-0.5">
+                 {findingsCount(s.audit_findings)} findings

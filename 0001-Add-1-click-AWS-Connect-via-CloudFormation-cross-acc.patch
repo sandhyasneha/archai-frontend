@@ -1,0 +1,1367 @@
+From a43deda0fae0a38f761c0534cd81043545b2682f Mon Sep 17 00:00:00 2001
+From: ram <chan2006@gmail.com>
+Date: Thu, 9 Jul 2026 11:17:52 +0000
+Subject: [PATCH] Add 1-click AWS Connect via CloudFormation cross-account role
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Second, lower-friction path for Brownfield auto-discover, alongside
+the CLI (kept for power users / CI pipelines). Uses the industry-
+standard pattern (same one Wiz, Orca, Datadog Cloud Security, and
+Prisma Cloud use): a CloudFormation Quick-Create Stack URL that
+deploys a read-only cross-account IAM role, trust-scoped with a
+unique ExternalId to prevent the confused-deputy problem.
+
+- lib/aws-connect/sts.ts: assumeCustomerRole() and
+  verifyRoleAssumable(), using ArchAI's own limited AWS identity
+  (sts:AssumeRole only, no other permissions of its own — all
+  actual read access comes from the role the customer creates and
+  controls).
+- lib/aws-connect/scanner.ts: server-side AWS discovery using
+  assumed credentials. Ports the exact same logic already proven
+  live against a real AWS account in archai-cli (per-bucket region
+  resolution, distinguishing 'not configured' from genuine access
+  errors, per-resource-type resilience).
+- app/api/aws-connect/init: generates a per-connection ExternalId
+  and the CloudFormation Quick-Create URL.
+- app/api/aws-connect/confirm: verifies the pasted-back Role ARN
+  is genuinely assumable (real AssumeRole + GetCallerIdentity call)
+  before marking the connection active — a bad ARN or mismatched
+  ExternalId fails immediately with a clear message rather than
+  silently 'succeeding'.
+- app/api/aws-connect/scan: assumes the role, scans, and runs the
+  exact same Auditor -> Planner -> Engineer -> ADR pipeline as
+  every other Brownfield entry point.
+- components/brownfield/BrownfieldClient.tsx: new 'Connect AWS
+  (1-click)' input option with a 3-step UI (launch stack -> paste
+  Role ARN -> run scan).
+- package.json: added @aws-sdk/client-sts, client-ec2, client-s3,
+  client-rds (verified real, current versions against npm).
+
+Also delivered separately (not part of this repo): a CloudFormation
+template (archai-readonly-role.yaml) defining the least-privilege
+read-only role, validated with the real cfn-lint tool (installed
+and run, not just eyeballed) — caught and fixed a real NoEcho/
+Outputs anti-pattern this way.
+
+Needs before this works in production:
+1. Run create_aws_connections_table.sql in Supabase (new table).
+2. Replace <ARCHAI_AWS_ACCOUNT_ID> in the CFN template with
+   NexPlan's real AWS account ID, then host the template file
+   publicly (e.g. an S3 bucket with public-read).
+3. Create a dedicated IAM user in that AWS account with ONLY
+   sts:AssumeRole permission — no other access — and set its
+   access key as ARCHAI_AWS_ACCESS_KEY_ID / ARCHAI_AWS_SECRET_ACCESS_KEY
+   in Vercel env vars, plus ARCHAI_AWS_ACCOUNT_ID and
+   ARCHAI_CFN_TEMPLATE_URL (the public template URL from step 2).
+
+Verified: tsc --noEmit clean, next build succeeds (all 3 new
+aws-connect routes confirmed in route table), no new lint errors
+(same pre-existing no-html-link-for-pages issue, unrelated).
+---
+ app/api/aws-connect/confirm/route.ts       |  53 +++
+ app/api/aws-connect/init/route.ts          |  50 +++
+ app/api/aws-connect/scan/route.ts          | 157 +++++++
+ components/brownfield/BrownfieldClient.tsx | 145 +++++-
+ lib/aws-connect/scanner.ts                 | 179 ++++++++
+ lib/aws-connect/sts.ts                     |  66 +++
+ lib/config.ts                              |   9 +
+ package-lock.json                          | 493 +++++++++++++++++++++
+ package.json                               |   4 +
+ 9 files changed, 1154 insertions(+), 2 deletions(-)
+ create mode 100644 app/api/aws-connect/confirm/route.ts
+ create mode 100644 app/api/aws-connect/init/route.ts
+ create mode 100644 app/api/aws-connect/scan/route.ts
+ create mode 100644 lib/aws-connect/scanner.ts
+ create mode 100644 lib/aws-connect/sts.ts
+
+diff --git a/app/api/aws-connect/confirm/route.ts b/app/api/aws-connect/confirm/route.ts
+new file mode 100644
+index 0000000..f9808cb
+--- /dev/null
++++ b/app/api/aws-connect/confirm/route.ts
+@@ -0,0 +1,53 @@
++import { NextRequest } from 'next/server'
++import { createClient } from '@/lib/supabase/server'
++import { verifyRoleAssumable } from '@/lib/aws-connect/sts'
++import { z } from 'zod'
++
++const Schema = z.object({
++  connection_id: z.string().uuid(),
++  role_arn: z.string().min(20).regex(/^arn:aws:iam::\d{12}:role\/.+$/, 'Not a valid IAM role ARN'),
++})
++
++export async function POST(req: NextRequest) {
++  const supabase = await createClient()
++  const { data: { user } } = await supabase.auth.getUser()
++  if (!user) return Response.json({ error: 'Unauthorised' }, { status: 401 })
++
++  const body = await req.json()
++  const parsed = Schema.safeParse(body)
++  if (!parsed.success) {
++    return Response.json({ error: 'Invalid input', details: parsed.error.flatten() }, { status: 400 })
++  }
++
++  const { connection_id, role_arn } = parsed.data
++
++  const { data: connection } = await supabase
++    .from('aws_connections')
++    .select('id, external_id, user_id')
++    .eq('id', connection_id)
++    .eq('user_id', user.id)
++    .single()
++
++  if (!connection) return Response.json({ error: 'Connection not found' }, { status: 404 })
++
++  const result = await verifyRoleAssumable(role_arn, connection.external_id)
++
++  if (!result.ok) {
++    await supabase
++      .from('aws_connections')
++      .update({ status: 'failed' })
++      .eq('id', connection_id)
++    return Response.json({
++      error: 'Could not assume this role',
++      message: result.error,
++      hint: 'Double-check the Role ARN was copied exactly from the CloudFormation Outputs tab, and that the stack finished creating successfully.',
++    }, { status: 400 })
++  }
++
++  await supabase
++    .from('aws_connections')
++    .update({ role_arn, status: 'active', verified_at: new Date().toISOString() })
++    .eq('id', connection_id)
++
++  return Response.json({ ok: true, assumed_as: result.assumedArn })
++}
+diff --git a/app/api/aws-connect/init/route.ts b/app/api/aws-connect/init/route.ts
+new file mode 100644
+index 0000000..c3c5f11
+--- /dev/null
++++ b/app/api/aws-connect/init/route.ts
+@@ -0,0 +1,50 @@
++import { NextRequest } from 'next/server'
++import { createClient } from '@/lib/supabase/server'
++import crypto from 'crypto'
++import { z } from 'zod'
++
++const Schema = z.object({
++  region: z.string().min(1).default('us-east-1'),
++})
++
++export async function POST(req: NextRequest) {
++  const supabase = await createClient()
++  const { data: { user } } = await supabase.auth.getUser()
++  if (!user) return Response.json({ error: 'Unauthorised' }, { status: 401 })
++
++  const body = await req.json().catch(() => ({}))
++  const parsed = Schema.safeParse(body)
++  const region = parsed.success ? parsed.data.region : 'us-east-1'
++
++  const externalId = `archai-${crypto.randomBytes(16).toString('hex')}`
++
++  const { data, error } = await supabase
++    .from('aws_connections')
++    .insert({
++      user_id: user.id,
++      external_id: externalId,
++      region,
++      status: 'pending',
++    })
++    .select('id, external_id')
++    .single()
++
++  if (error) return Response.json({ error: error.message }, { status: 500 })
++
++  const templateUrl = process.env.ARCHAI_CFN_TEMPLATE_URL
++  if (!templateUrl) {
++    return Response.json({ error: 'ArchAI CloudFormation template is not configured yet' }, { status: 500 })
++  }
++
++  const quickCreateUrl =
++    `https://console.aws.amazon.com/cloudformation/home?region=${encodeURIComponent(region)}` +
++    `#/stacks/quickcreate?stackName=ArchAI-ReadOnly-Access` +
++    `&templateURL=${encodeURIComponent(templateUrl)}` +
++    `&param_ExternalId=${encodeURIComponent(externalId)}`
++
++  return Response.json({
++    connection_id: data.id,
++    external_id: data.external_id,
++    quick_create_url: quickCreateUrl,
++  })
++}
+diff --git a/app/api/aws-connect/scan/route.ts b/app/api/aws-connect/scan/route.ts
+new file mode 100644
+index 0000000..36bdec0
+--- /dev/null
++++ b/app/api/aws-connect/scan/route.ts
+@@ -0,0 +1,157 @@
++import { NextRequest } from 'next/server'
++import { createClient } from '@/lib/supabase/server'
++import { createClient as createServiceClient } from '@supabase/supabase-js'
++import { assumeCustomerRole } from '@/lib/aws-connect/sts'
++import { scanAWSWithAssumedRole, buildScanResult } from '@/lib/aws-connect/scanner'
++import { runBrownfieldAuditor } from '@/lib/agents/brownfield/auditor'
++import { runPlanner } from '@/lib/agents/brownfield/planner'
++import { runBrownfieldEngineer } from '@/lib/agents/brownfield/engineer'
++import { generateADR } from '@/lib/agents/brownfield/adr'
++import { z } from 'zod'
++
++const Schema = z.object({
++  connection_id: z.string().uuid(),
++  target_cloud: z.enum(['aws', 'azure', 'gcp']),
++})
++
++export async function POST(req: NextRequest) {
++  const supabase = await createClient()
++  const { data: { user } } = await supabase.auth.getUser()
++  if (!user) return Response.json({ error: 'Unauthorised' }, { status: 401 })
++
++  const serviceClient = createServiceClient(
++    process.env.NEXT_PUBLIC_SUPABASE_URL!,
++    process.env.SUPABASE_SERVICE_ROLE_KEY!
++  )
++
++  const { data: subscription } = await serviceClient
++    .from('subscriptions')
++    .select('*, plans(*)')
++    .eq('user_id', user.id)
++    .eq('status', 'active')
++    .single()
++
++  const plan = subscription?.plans as { name: string } | null
++  if (!plan || !['team', 'enterprise'].includes(plan.name)) {
++    return Response.json({
++      error: 'plan_required',
++      message: 'Brownfield analysis requires Team or Enterprise plan. Upgrade to continue.',
++    }, { status: 403 })
++  }
++
++  const body = await req.json()
++  const parsed = Schema.safeParse(body)
++  if (!parsed.success) return Response.json({ error: 'Invalid input' }, { status: 400 })
++
++  const { connection_id, target_cloud } = parsed.data
++
++  const { data: connection } = await supabase
++    .from('aws_connections')
++    .select('*')
++    .eq('id', connection_id)
++    .eq('user_id', user.id)
++    .eq('status', 'active')
++    .single()
++
++  if (!connection || !connection.role_arn) {
++    return Response.json({ error: 'No active AWS connection found. Connect an account first.' }, { status: 404 })
++  }
++
++  try {
++    const creds = await assumeCustomerRole(connection.role_arn, connection.external_id)
++    const { resources, warnings } = await scanAWSWithAssumedRole(connection.region, creds)
++    const scanResult = buildScanResult(connection.region, resources)
++
++    if (warnings.length > 0) {
++      console.error('AWS connect scan warnings:', warnings)
++    }
++
++    let kbContext = ''
++    try {
++      const { data: kbFiles } = await serviceClient.storage.from('knowledge-base').list(`${user.id}/`)
++      if (kbFiles && kbFiles.length > 0) {
++        const fileContents = await Promise.all(
++          kbFiles.slice(0, 3).map(async (file) => {
++            const { data } = await serviceClient.storage.from('knowledge-base').download(`${user.id}/${file.name}`)
++            if (data) {
++              const text = await data.text()
++              return `=== ${file.name} ===\n${text.slice(0, 1000)}`
++            }
++            return ''
++          })
++        )
++        kbContext = fileContents.filter(Boolean).join('\n\n')
++      }
++    } catch { kbContext = '' }
++
++    const auditResult = await runBrownfieldAuditor(scanResult)
++    const migrationPlan = await runPlanner(scanResult, auditResult, target_cloud, kbContext)
++    const terraformOutput = await runBrownfieldEngineer(scanResult, migrationPlan, kbContext)
++
++    const { data: scan, error: insertError } = await serviceClient
++      .from('brownfield_scans')
++      .insert({
++        user_id: user.id,
++        input_type: 'auto_discover',
++        input_content: `Live AWS connection scan: ${scanResult.total_resources} resources from ${connection.region}`,
++        source_cloud: 'aws',
++        target_cloud,
++        audit_findings: {
++          findings: auditResult.findings,
++          compliance_score: auditResult.compliance_score,
++          critical_count: auditResult.critical_count,
++          high_count: auditResult.high_count,
++          medium_count: auditResult.medium_count,
++          low_count: auditResult.low_count,
++          cost_waste_usd: auditResult.cost_waste_usd,
++          summary: auditResult.summary,
++          scan_summary: {
++            total_resources: scanResult.total_resources,
++            source_cloud: scanResult.source_cloud,
++            region: scanResult.region,
++            resources: scanResult.resources,
++          },
++        },
++        migration_plan: migrationPlan,
++        terraform_output: terraformOutput,
++        cost_before: migrationPlan.cost_before_usd,
++        cost_after: migrationPlan.cost_after_usd,
++        status: 'complete',
++      })
++      .select()
++      .single()
++
++    if (insertError) {
++      console.error('brownfield_scans insert failed (aws-connect):', insertError)
++      return Response.json({ error: 'Failed to save scan' }, { status: 500 })
++    }
++
++    let adrId: string | null = null
++    if (scan?.id) {
++      adrId = `ADR-${scan.id.slice(0, 8).toUpperCase()}`
++      const adrMarkdown = generateADR(adrId, scanResult, auditResult, migrationPlan)
++      await serviceClient
++        .from('brownfield_scans')
++        .update({ migration_plan: { ...migrationPlan, adr_id: adrId, adr_markdown: adrMarkdown } })
++        .eq('id', scan.id)
++    }
++
++    await supabase
++      .from('aws_connections')
++      .update({ last_scanned_at: new Date().toISOString() })
++      .eq('id', connection_id)
++
++    return Response.json({
++      scan_id: scan?.id,
++      adr_id: adrId,
++      compliance_score: auditResult.compliance_score,
++      findings_count: auditResult.findings.length,
++      warnings,
++      url: `${process.env.NEXT_PUBLIC_APP_URL}/brownfield/${scan?.id}`,
++    })
++  } catch (err) {
++    const message = err instanceof Error ? err.message : 'Unknown error'
++    console.error('AWS connect scan failed:', message)
++    return Response.json({ error: 'Scan failed', message }, { status: 500 })
++  }
++}
+diff --git a/components/brownfield/BrownfieldClient.tsx b/components/brownfield/BrownfieldClient.tsx
+index 56fc6d3..ed17a98 100644
+--- a/components/brownfield/BrownfieldClient.tsx
++++ b/components/brownfield/BrownfieldClient.tsx
+@@ -16,7 +16,7 @@ interface Props {
+ }
+ 
+ type Step = 'input' | 'scanning' | 'results'
+-type InputType = 'terraform' | 'tfstate' | 'description' | 'auto_discover'
++type InputType = 'terraform' | 'tfstate' | 'description' | 'auto_discover' | 'connect_aws'
+ type TargetCloud = 'aws' | 'azure' | 'gcp'
+ 
+ interface AgentState {
+@@ -107,6 +107,12 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
+   const [migrationPlan, setMigrationPlan] = useState<MigrationPlan | null>(null)
+   const [terraformOutput, setTerraformOutput] = useState('')
+   const [copied, setCopied] = useState(false)
++  const [connectStep, setConnectStep] = useState<'start' | 'awaiting-arn' | 'connected'>('start')
++  const [connectionId, setConnectionId] = useState<string | null>(null)
++  const [quickCreateUrl, setQuickCreateUrl] = useState('')
++  const [roleArnInput, setRoleArnInput] = useState('')
++  const [connectError, setConnectError] = useState('')
++  const [connectLoading, setConnectLoading] = useState(false)
+ 
+   async function runAnalysis() {
+     if (!inputContent.trim()) { setError('Please provide your infrastructure code or description.'); return }
+@@ -187,6 +193,72 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
+     setTimeout(() => setCopied(false), 2000)
+   }
+ 
++  async function startAwsConnect() {
++    setConnectError('')
++    setConnectLoading(true)
++    try {
++      const res = await fetch('/api/aws-connect/init', {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({ region: 'us-east-1' }),
++      })
++      const data = await res.json()
++      if (!res.ok) { setConnectError(data.error || 'Failed to start connection'); setConnectLoading(false); return }
++      setConnectionId(data.connection_id)
++      setQuickCreateUrl(data.quick_create_url)
++      setConnectStep('awaiting-arn')
++      window.open(data.quick_create_url, '_blank')
++    } catch {
++      setConnectError('Failed to start connection')
++    }
++    setConnectLoading(false)
++  }
++
++  async function confirmAwsConnect() {
++    if (!connectionId || !roleArnInput.trim()) return
++    setConnectError('')
++    setConnectLoading(true)
++    try {
++      const res = await fetch('/api/aws-connect/confirm', {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({ connection_id: connectionId, role_arn: roleArnInput.trim() }),
++      })
++      const data = await res.json()
++      if (!res.ok) {
++        setConnectError(data.message || data.error || 'Could not verify this role')
++        setConnectLoading(false)
++        return
++      }
++      setConnectStep('connected')
++    } catch {
++      setConnectError('Failed to verify connection')
++    }
++    setConnectLoading(false)
++  }
++
++  async function runAwsConnectScan() {
++    if (!connectionId) return
++    setConnectError('')
++    setConnectLoading(true)
++    try {
++      const res = await fetch('/api/aws-connect/scan', {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({ connection_id: connectionId, target_cloud: targetCloud }),
++      })
++      const data = await res.json()
++      if (!res.ok) { setConnectError(data.message || data.error || 'Scan failed'); setConnectLoading(false); return }
++      if (data.scan_id) {
++        window.location.href = `/brownfield/${data.scan_id}`
++        return
++      }
++    } catch {
++      setConnectError('Scan failed')
++    }
++    setConnectLoading(false)
++  }
++
+   function downloadTerraform() {
+     const blob = new Blob([terraformOutput], { type: 'text/plain' })
+     const url = URL.createObjectURL(blob)
+@@ -303,6 +375,7 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
+                     { id: 'tfstate', label: 'State file (.tfstate)' },
+                     { id: 'description', label: 'Plain English' },
+                     { id: 'auto_discover', label: '⚡ Auto-discover (CLI)' },
++                    { id: 'connect_aws', label: '🔌 Connect AWS (1-click)' },
+                   ] as { id: InputType; label: string }[]).map(t => (
+                     <button key={t.id} onClick={() => setInputType(t.id)}
+                       className={`px-4 py-2 border rounded-md text-sm font-medium transition-colors ${inputType === t.id ? 'border-black bg-black text-white' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
+@@ -332,7 +405,7 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
+               {/* Target cloud */}
+               <div className="mb-5">
+                 <label className="block text-xs font-medium text-gray-600 mb-2">
+-                  {inputType === 'auto_discover' ? 'Target cloud (to migrate to)' : 'Target cloud provider'}
++                  {(inputType === 'auto_discover' || inputType === 'connect_aws') ? 'Target cloud (to migrate to)' : 'Target cloud provider'}
+                 </label>
+                 <div className="flex gap-2">
+                   {(['aws', 'azure', 'gcp'] as TargetCloud[]).map(c => (
+@@ -382,6 +455,74 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
+                     automatically on your Dashboard under &quot;Recent brownfield migrations&quot;. No need to wait on this page.
+                   </p>
+                 </div>
++              ) : inputType === 'connect_aws' ? (
++                <div className="border border-gray-100 rounded-xl p-5 bg-gray-50">
++                  <div className="flex items-center gap-2 mb-3">
++                    <span className="text-lg">🔌</span>
++                    <span className="text-sm font-semibold text-black">Connect your AWS account</span>
++                  </div>
++                  <p className="text-xs text-gray-500 mb-4 leading-relaxed">
++                    One-click, no local setup. ArchAI opens the official AWS Console with a pre-filled CloudFormation
++                    stack that creates a <strong>read-only</strong> role — no write or delete access anywhere. Revoke
++                    it anytime by deleting the stack in your AWS account.
++                  </p>
++
++                  {connectError && (
++                    <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-md px-3 py-2 mb-4">{connectError}</p>
++                  )}
++
++                  {connectStep === 'start' && (
++                    <button
++                      onClick={startAwsConnect}
++                      disabled={connectLoading}
++                      className="px-5 py-2.5 bg-black text-white rounded-md text-sm font-medium hover:opacity-85 transition-opacity disabled:opacity-50"
++                    >
++                      {connectLoading ? 'Starting...' : 'Launch Stack in AWS Console →'}
++                    </button>
++                  )}
++
++                  {connectStep === 'awaiting-arn' && (
++                    <div className="flex flex-col gap-3">
++                      <p className="text-xs text-gray-500">
++                        A new tab opened to AWS CloudFormation with the stack pre-filled — click{' '}
++                        <strong>Create stack</strong> there. Once it finishes (usually under a minute), open the{' '}
++                        <strong>Outputs</strong> tab and copy the <code className="bg-gray-100 px-1 rounded">RoleArn</code> value.
++                      </p>
++                      <a href={quickCreateUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-black underline">
++                        Re-open the AWS Console link
++                      </a>
++                      <input
++                        type="text"
++                        value={roleArnInput}
++                        onChange={e => setRoleArnInput(e.target.value)}
++                        placeholder="arn:aws:iam::123456789012:role/ArchAI-ReadOnly-..."
++                        className="w-full px-3 py-2.5 border border-gray-200 rounded-md text-sm font-mono outline-none focus:border-black transition-colors"
++                      />
++                      <button
++                        onClick={confirmAwsConnect}
++                        disabled={connectLoading || !roleArnInput.trim()}
++                        className="px-5 py-2.5 bg-black text-white rounded-md text-sm font-medium hover:opacity-85 transition-opacity disabled:opacity-50 self-start"
++                      >
++                        {connectLoading ? 'Verifying...' : 'Verify & Connect'}
++                      </button>
++                    </div>
++                  )}
++
++                  {connectStep === 'connected' && (
++                    <div className="flex flex-col gap-3">
++                      <p className="text-xs text-green-700 bg-green-50 border border-green-100 rounded-md px-3 py-2">
++                        ✓ Connected. ArchAI can now run read-only scans against this AWS account.
++                      </p>
++                      <button
++                        onClick={runAwsConnectScan}
++                        disabled={connectLoading}
++                        className="px-5 py-2.5 bg-black text-white rounded-md text-sm font-medium hover:opacity-85 transition-opacity disabled:opacity-50 self-start"
++                      >
++                        {connectLoading ? 'Scanning...' : 'Run scan now →'}
++                      </button>
++                    </div>
++                  )}
++                </div>
+               ) : (
+                 <>
+                   {/* Input content */}
+diff --git a/lib/aws-connect/scanner.ts b/lib/aws-connect/scanner.ts
+new file mode 100644
+index 0000000..95c0207
+--- /dev/null
++++ b/lib/aws-connect/scanner.ts
+@@ -0,0 +1,179 @@
++import {
++  EC2Client, DescribeInstancesCommand,
++} from '@aws-sdk/client-ec2'
++import {
++  S3Client, ListBucketsCommand, GetBucketLocationCommand,
++  GetPublicAccessBlockCommand, GetBucketEncryptionCommand, GetBucketVersioningCommand,
++} from '@aws-sdk/client-s3'
++import {
++  RDSClient, DescribeDBInstancesCommand,
++} from '@aws-sdk/client-rds'
++import { ScannedResource, ScanResult } from '@/lib/agents/brownfield/scanner'
++
++interface AssumedCredentials {
++  accessKeyId: string
++  secretAccessKey: string
++  sessionToken: string
++}
++
++/**
++ * Same discovery logic as the archai-cli AWS provider (see archai-cli/src/providers/aws.js),
++ * ported to run server-side against assumed cross-account credentials instead
++ * of a local default credential chain. Carries over the same fixes already
++ * proven against a real AWS account: per-bucket region resolution (bucket
++ * config APIs require the bucket's actual region, not just the requested
++ * one), distinguishing "not configured" from genuine access errors, and
++ * per-resource-type resilience (one failing resource type doesn't abort
++ * the whole scan).
++ */
++export async function scanAWSWithAssumedRole(
++  region: string,
++  creds: AssumedCredentials
++): Promise<{ resources: ScannedResource[]; warnings: string[] }> {
++  const resources: ScannedResource[] = []
++  const warnings: string[] = []
++  const credentials = {
++    accessKeyId: creds.accessKeyId,
++    secretAccessKey: creds.secretAccessKey,
++    sessionToken: creds.sessionToken,
++  }
++
++  // --- EC2 instances ---
++  try {
++    const ec2 = new EC2Client({ region, credentials })
++    const ec2Data = await ec2.send(new DescribeInstancesCommand({}))
++    for (const reservation of ec2Data.Reservations ?? []) {
++      for (const instance of reservation.Instances ?? []) {
++        const nameTag = instance.Tags?.find((t) => t.Key === 'Name')?.Value
++        resources.push({
++          type: 'aws_instance',
++          name: nameTag || instance.InstanceId || 'unknown',
++          cloud: 'aws',
++          region,
++          issues: [],
++          properties: {
++            instance_id: instance.InstanceId ?? '',
++            instance_type: instance.InstanceType ?? '',
++            state: instance.State?.Name ?? '',
++            public_ip_assigned: String(!!instance.PublicIpAddress),
++            monitoring: instance.Monitoring?.State ?? '',
++            iam_instance_profile: instance.IamInstanceProfile?.Arn ?? 'none',
++          },
++        })
++      }
++    }
++  } catch (err) {
++    warnings.push(`EC2 scan skipped: ${err instanceof Error ? err.message : 'Unknown error'}`)
++  }
++
++  // --- S3 buckets ---
++  try {
++    const s3 = new S3Client({ region, credentials })
++    const bucketsData = await s3.send(new ListBucketsCommand({}))
++    const regionClientCache = new Map<string, S3Client>([[region, s3]])
++
++    for (const bucket of bucketsData.Buckets ?? []) {
++      const name = bucket.Name
++      if (!name) continue
++      let publicAccessBlocked = 'unknown'
++      let encrypted = 'unknown'
++      let versioning = 'unknown'
++      let bucketRegion = region
++
++      try {
++        const loc = await s3.send(new GetBucketLocationCommand({ Bucket: name }))
++        bucketRegion = loc.LocationConstraint || 'us-east-1'
++      } catch (err) {
++        warnings.push(`Could not determine region for bucket ${name}, assuming ${region}: ${err instanceof Error ? err.message : 'Unknown error'}`)
++      }
++
++      let regionalClient = regionClientCache.get(bucketRegion)
++      if (!regionalClient) {
++        regionalClient = new S3Client({ region: bucketRegion, credentials })
++        regionClientCache.set(bucketRegion, regionalClient)
++      }
++
++      try {
++        const pab = await regionalClient.send(new GetPublicAccessBlockCommand({ Bucket: name }))
++        const cfg = pab.PublicAccessBlockConfiguration
++        publicAccessBlocked = String(!!(cfg?.BlockPublicAcls && cfg?.BlockPublicPolicy))
++      } catch (err) {
++        const e = err as { name?: string; message?: string }
++        if (e.name === 'NoSuchPublicAccessBlockConfiguration') {
++          publicAccessBlocked = 'false'
++        } else {
++          warnings.push(`Could not read public access block for bucket ${name}: ${e.message ?? 'Unknown error'}`)
++        }
++      }
++      try {
++        await regionalClient.send(new GetBucketEncryptionCommand({ Bucket: name }))
++        encrypted = 'true'
++      } catch (err) {
++        const e = err as { name?: string; message?: string }
++        if (e.name === 'ServerSideEncryptionConfigurationNotFoundError') {
++          encrypted = 'false'
++        } else {
++          warnings.push(`Could not read encryption config for bucket ${name}: ${e.message ?? 'Unknown error'}`)
++        }
++      }
++      try {
++        const v = await regionalClient.send(new GetBucketVersioningCommand({ Bucket: name }))
++        versioning = v.Status ?? 'Disabled'
++      } catch (err) {
++        warnings.push(`Could not read versioning for bucket ${name}: ${err instanceof Error ? err.message : 'Unknown error'}`)
++      }
++
++      resources.push({
++        type: 'aws_s3_bucket',
++        name,
++        cloud: 'aws',
++        region: bucketRegion,
++        issues: [],
++        properties: {
++          public_access_blocked: publicAccessBlocked,
++          encrypted,
++          versioning,
++        },
++      })
++    }
++  } catch (err) {
++    warnings.push(`S3 scan skipped: ${err instanceof Error ? err.message : 'Unknown error'}`)
++  }
++
++  // --- RDS instances ---
++  try {
++    const rds = new RDSClient({ region, credentials })
++    const rdsData = await rds.send(new DescribeDBInstancesCommand({}))
++    for (const db of rdsData.DBInstances ?? []) {
++      resources.push({
++        type: 'aws_db_instance',
++        name: db.DBInstanceIdentifier ?? 'unknown',
++        cloud: 'aws',
++        region,
++        issues: [],
++        properties: {
++          engine: db.Engine ?? '',
++          engine_version: db.EngineVersion ?? '',
++          instance_class: db.DBInstanceClass ?? '',
++          publicly_accessible: String(!!db.PubliclyAccessible),
++          storage_encrypted: String(!!db.StorageEncrypted),
++          multi_az: String(!!db.MultiAZ),
++        },
++      })
++    }
++  } catch (err) {
++    warnings.push(`RDS scan skipped: ${err instanceof Error ? err.message : 'Unknown error'}`)
++  }
++
++  return { resources, warnings }
++}
++
++export function buildScanResult(region: string, resources: ScannedResource[]): ScanResult {
++  return {
++    source_cloud: 'aws',
++    region,
++    resources,
++    total_resources: resources.length,
++    input_type: 'auto_discover',
++  }
++}
+diff --git a/lib/aws-connect/sts.ts b/lib/aws-connect/sts.ts
+new file mode 100644
+index 0000000..ad39f04
+--- /dev/null
++++ b/lib/aws-connect/sts.ts
+@@ -0,0 +1,66 @@
++import { STSClient, AssumeRoleCommand, GetCallerIdentityCommand } from '@aws-sdk/client-sts'
++import { config } from '@/lib/config'
++
++interface AssumedCredentials {
++  accessKeyId: string
++  secretAccessKey: string
++  sessionToken: string
++}
++
++/**
++ * Assumes a customer's ArchAI-ReadOnly cross-account role, using ArchAI's
++ * own limited AWS identity (which itself has no permissions beyond
++ * sts:AssumeRole). Requires the customer's Role ARN and the ExternalId
++ * originally generated for that connection — both must match what the
++ * customer's own trust policy expects, or this fails.
++ */
++export async function assumeCustomerRole(roleArn: string, externalId: string): Promise<AssumedCredentials> {
++  const sts = new STSClient({
++    region: 'us-east-1',
++    credentials: {
++      accessKeyId: config.aws.access_key_id,
++      secretAccessKey: config.aws.secret_access_key,
++    },
++  })
++
++  const result = await sts.send(new AssumeRoleCommand({
++    RoleArn: roleArn,
++    RoleSessionName: 'archai-brownfield-scan',
++    ExternalId: externalId,
++    DurationSeconds: 900, // 15 minutes — just long enough for one scan
++  }))
++
++  if (!result.Credentials?.AccessKeyId || !result.Credentials?.SecretAccessKey || !result.Credentials?.SessionToken) {
++    throw new Error('AssumeRole succeeded but returned no usable credentials')
++  }
++
++  return {
++    accessKeyId: result.Credentials.AccessKeyId,
++    secretAccessKey: result.Credentials.SecretAccessKey,
++    sessionToken: result.Credentials.SessionToken,
++  }
++}
++
++/**
++ * Verifies a role can genuinely be assumed with the given ExternalId,
++ * without running a full scan — used when the customer first pastes back
++ * their Role ARN, so a bad ARN or mismatched ExternalId fails fast with a
++ * clear error instead of silently marking the connection 'active'.
++ */
++export async function verifyRoleAssumable(roleArn: string, externalId: string): Promise<{ ok: boolean; error?: string; assumedArn?: string }> {
++  try {
++    const creds = await assumeCustomerRole(roleArn, externalId)
++    const sts = new STSClient({
++      region: 'us-east-1',
++      credentials: {
++        accessKeyId: creds.accessKeyId,
++        secretAccessKey: creds.secretAccessKey,
++        sessionToken: creds.sessionToken,
++      },
++    })
++    const identity = await sts.send(new GetCallerIdentityCommand({}))
++    return { ok: true, assumedArn: identity.Arn }
++  } catch (err) {
++    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' }
++  }
++}
+diff --git a/lib/config.ts b/lib/config.ts
+index 53528db..74f5e78 100644
+--- a/lib/config.ts
++++ b/lib/config.ts
+@@ -10,6 +10,15 @@ export const config = {
+   app: {
+     url: process.env.NEXT_PUBLIC_APP_URL!,
+   },
++  aws: {
++    // ArchAI's own AWS identity, used ONLY to call sts:AssumeRole into a
++    // customer's cross-account role. This identity itself should have no
++    // permissions in its own account beyond sts:AssumeRole — all actual
++    // read access comes from the role the customer creates and controls.
++    access_key_id: process.env.ARCHAI_AWS_ACCESS_KEY_ID!,
++    secret_access_key: process.env.ARCHAI_AWS_SECRET_ACCESS_KEY!,
++    account_id: process.env.ARCHAI_AWS_ACCOUNT_ID!,
++  },
+ }
+ 
+ // Blocked personal email domains
+diff --git a/package-lock.json b/package-lock.json
+index ca25392..758e36b 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -9,6 +9,10 @@
+       "version": "0.1.0",
+       "dependencies": {
+         "@anthropic-ai/sdk": "^0.105.0",
++        "@aws-sdk/client-ec2": "^3.1083.0",
++        "@aws-sdk/client-rds": "^3.1083.0",
++        "@aws-sdk/client-s3": "^3.1083.0",
++        "@aws-sdk/client-sts": "^3.1083.0",
+         "@supabase/ssr": "^0.12.0",
+         "@supabase/supabase-js": "^2.108.2",
+         "jsonwebtoken": "^9.0.3",
+@@ -63,6 +67,408 @@
+         }
+       }
+     },
++    "node_modules/@aws-sdk/checksums": {
++      "version": "3.1000.16",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/checksums/-/checksums-3.1000.16.tgz",
++      "integrity": "sha512-EKnvkXSmz3IpA99tCNuI+dLFXyZyClSm8zns9sB/elvkU+MTuomAs6toJMPMBf98/fICG/urXDkzGz0/c3yyAQ==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.975.1",
++        "@aws-sdk/types": "^3.974.0",
++        "@smithy/core": "^3.29.2",
++        "@smithy/types": "^4.16.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/client-ec2": {
++      "version": "3.1083.0",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/client-ec2/-/client-ec2-3.1083.0.tgz",
++      "integrity": "sha512-An9zV+dlsfwAcVOLwQWlfDHaH4eS8vWZqANn/sAshPqWZOs4a+wV4IMI+nezU2gBU65vDTJdwvSwN7OMT5RrXA==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.975.1",
++        "@aws-sdk/credential-provider-node": "^3.972.66",
++        "@aws-sdk/middleware-sdk-ec2": "^3.972.45",
++        "@aws-sdk/types": "^3.974.0",
++        "@smithy/core": "^3.29.2",
++        "@smithy/fetch-http-handler": "^5.6.4",
++        "@smithy/node-http-handler": "^4.9.4",
++        "@smithy/types": "^4.16.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/client-rds": {
++      "version": "3.1083.0",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/client-rds/-/client-rds-3.1083.0.tgz",
++      "integrity": "sha512-JG99IdQ6mV+yC93nECcquUGUA1Z0Gp0bz26iwA4OSo02ss/P4CtJBEwbhfI0TFIJoNSgn8OzlteNyD67B5XkpQ==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.975.1",
++        "@aws-sdk/credential-provider-node": "^3.972.66",
++        "@aws-sdk/middleware-sdk-rds": "^3.972.45",
++        "@aws-sdk/types": "^3.974.0",
++        "@smithy/core": "^3.29.2",
++        "@smithy/fetch-http-handler": "^5.6.4",
++        "@smithy/node-http-handler": "^4.9.4",
++        "@smithy/types": "^4.16.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/client-s3": {
++      "version": "3.1083.0",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/client-s3/-/client-s3-3.1083.0.tgz",
++      "integrity": "sha512-3YOicHy6qjexsy4rHk5jPvtLgg6Ho1u+ycOWtJcVTAIMlMq32MRtnhllAyFSezhAXeBnnLLtKtAGXim7vV8oog==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/checksums": "^3.1000.16",
++        "@aws-sdk/core": "^3.975.1",
++        "@aws-sdk/credential-provider-node": "^3.972.66",
++        "@aws-sdk/middleware-sdk-s3": "^3.972.62",
++        "@aws-sdk/signature-v4-multi-region": "^3.996.39",
++        "@aws-sdk/types": "^3.974.0",
++        "@smithy/core": "^3.29.2",
++        "@smithy/fetch-http-handler": "^5.6.4",
++        "@smithy/node-http-handler": "^4.9.4",
++        "@smithy/types": "^4.16.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/client-sts": {
++      "version": "3.1083.0",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/client-sts/-/client-sts-3.1083.0.tgz",
++      "integrity": "sha512-3DRm8UNj3aByu0U5Sgvs5Ut3V1XbWiST/JWF3/Zk57kFeVYm4a/EjQH4k9jTI8pk4dmYkZZJMcaecqTRRYzYZg==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.975.1",
++        "@aws-sdk/credential-provider-node": "^3.972.66",
++        "@aws-sdk/signature-v4-multi-region": "^3.996.39",
++        "@aws-sdk/types": "^3.974.0",
++        "@smithy/core": "^3.29.2",
++        "@smithy/fetch-http-handler": "^5.6.4",
++        "@smithy/node-http-handler": "^4.9.4",
++        "@smithy/types": "^4.16.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/core": {
++      "version": "3.975.1",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/core/-/core-3.975.1.tgz",
++      "integrity": "sha512-8qh/6EYb7hl/ZwVfQufhbMEZs1gQIc7GbdrIf4eprQJ7cv042+74nE6l3YDfyWNzb9iPXb8fRyYSHkNIk5eE6Q==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/types": "^3.974.0",
++        "@aws-sdk/xml-builder": "^3.972.34",
++        "@aws/lambda-invoke-store": "^0.3.0",
++        "@smithy/core": "^3.29.2",
++        "@smithy/signature-v4": "^5.6.3",
++        "@smithy/types": "^4.16.0",
++        "bowser": "^2.11.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/credential-provider-env": {
++      "version": "3.972.57",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/credential-provider-env/-/credential-provider-env-3.972.57.tgz",
++      "integrity": "sha512-1RfJaF7SW1TOnvNGU7kaYjwUf5H3sfm+synGH1bHhRlqcnxCt3szebH3dmKEyY4tuGcbQ6ffzUT89cRitBV8OQ==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.975.1",
++        "@aws-sdk/types": "^3.974.0",
++        "@smithy/core": "^3.29.2",
++        "@smithy/types": "^4.16.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/credential-provider-http": {
++      "version": "3.972.59",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/credential-provider-http/-/credential-provider-http-3.972.59.tgz",
++      "integrity": "sha512-sRCkpTiFnCdQvuaRVjQ6SVoHu6i7RUpurVo1c4F81HWhPvUJ7Wdp5MNtSdX1O29CNXc8em3O5m52hCjVtAD9SA==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.975.1",
++        "@aws-sdk/types": "^3.974.0",
++        "@smithy/core": "^3.29.2",
++        "@smithy/fetch-http-handler": "^5.6.4",
++        "@smithy/node-http-handler": "^4.9.4",
++        "@smithy/types": "^4.16.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/credential-provider-ini": {
++      "version": "3.973.1",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/credential-provider-ini/-/credential-provider-ini-3.973.1.tgz",
++      "integrity": "sha512-6d8H6ZAh3ZPKZ6fe1nG2OWeZEZPtt9ravoD1dezPdPtsSkJRoxGAnFSHwKT3E/Te6fHE30zRzjV6TD12rvF6yQ==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.975.1",
++        "@aws-sdk/credential-provider-env": "^3.972.57",
++        "@aws-sdk/credential-provider-http": "^3.972.59",
++        "@aws-sdk/credential-provider-login": "^3.972.63",
++        "@aws-sdk/credential-provider-process": "^3.972.57",
++        "@aws-sdk/credential-provider-sso": "^3.973.1",
++        "@aws-sdk/credential-provider-web-identity": "^3.972.63",
++        "@aws-sdk/nested-clients": "^3.997.31",
++        "@aws-sdk/types": "^3.974.0",
++        "@smithy/core": "^3.29.2",
++        "@smithy/credential-provider-imds": "^4.4.7",
++        "@smithy/types": "^4.16.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/credential-provider-login": {
++      "version": "3.972.63",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/credential-provider-login/-/credential-provider-login-3.972.63.tgz",
++      "integrity": "sha512-GREWRrMj0XnNKMaVa/Mauoaui26qBEHu71WWqXbwZOu/jFQOnPZjTf7u0KtGKC8VGa6VUs9kDWGgocrKNLS9vw==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.975.1",
++        "@aws-sdk/nested-clients": "^3.997.31",
++        "@aws-sdk/types": "^3.974.0",
++        "@smithy/core": "^3.29.2",
++        "@smithy/types": "^4.16.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/credential-provider-node": {
++      "version": "3.972.66",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/credential-provider-node/-/credential-provider-node-3.972.66.tgz",
++      "integrity": "sha512-f+qjRXZpz7sgzbc4QB+6nLKfyKFgRRXzWdXbsKPv/VhVRyHsDyq4yBWC/B75BAJpFIcUeI2XR/3gdWJ677zB4A==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/credential-provider-env": "^3.972.57",
++        "@aws-sdk/credential-provider-http": "^3.972.59",
++        "@aws-sdk/credential-provider-ini": "^3.973.1",
++        "@aws-sdk/credential-provider-process": "^3.972.57",
++        "@aws-sdk/credential-provider-sso": "^3.973.1",
++        "@aws-sdk/credential-provider-web-identity": "^3.972.63",
++        "@aws-sdk/types": "^3.974.0",
++        "@smithy/core": "^3.29.2",
++        "@smithy/credential-provider-imds": "^4.4.7",
++        "@smithy/types": "^4.16.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/credential-provider-process": {
++      "version": "3.972.57",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/credential-provider-process/-/credential-provider-process-3.972.57.tgz",
++      "integrity": "sha512-TiVQhuU0pbhIZAUZacbPHMyzrIdiH+lnx+PMY/Pu/b93dJrq3wdZwzUJ0TPpvNxaqbHsxJvQZW3/h/beLiKq7Q==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.975.1",
++        "@aws-sdk/types": "^3.974.0",
++        "@smithy/core": "^3.29.2",
++        "@smithy/types": "^4.16.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/credential-provider-sso": {
++      "version": "3.973.1",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/credential-provider-sso/-/credential-provider-sso-3.973.1.tgz",
++      "integrity": "sha512-3foTZUJ4821Ij60X7K3NJroygiZLnbBmarN+T//O2cjkISan90zElN3NBmgSlDrTQ7Gs6z/yO8V7h60QNcDZHQ==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.975.1",
++        "@aws-sdk/nested-clients": "^3.997.31",
++        "@aws-sdk/token-providers": "3.1083.0",
++        "@aws-sdk/types": "^3.974.0",
++        "@smithy/core": "^3.29.2",
++        "@smithy/types": "^4.16.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/credential-provider-web-identity": {
++      "version": "3.972.63",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/credential-provider-web-identity/-/credential-provider-web-identity-3.972.63.tgz",
++      "integrity": "sha512-8qZLFhM69eKcS37m459ctPR05Qimycm/74OPVioe6wNZabMT54GYhwBju0+J656RkMasNSawWQu+c8CmBe3TUQ==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.975.1",
++        "@aws-sdk/nested-clients": "^3.997.31",
++        "@aws-sdk/types": "^3.974.0",
++        "@smithy/core": "^3.29.2",
++        "@smithy/types": "^4.16.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/middleware-sdk-ec2": {
++      "version": "3.972.45",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/middleware-sdk-ec2/-/middleware-sdk-ec2-3.972.45.tgz",
++      "integrity": "sha512-wcSIL3HWcEQQkf+eKbyhwqSML23uTUI2zAYexRRa0akL74pnq5olKh06a0kGHWsn6SUHcw9zy9dExA8UuJAUCw==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.975.1",
++        "@aws-sdk/types": "^3.974.0",
++        "@smithy/core": "^3.29.2",
++        "@smithy/signature-v4": "^5.6.3",
++        "@smithy/types": "^4.16.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/middleware-sdk-rds": {
++      "version": "3.972.45",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/middleware-sdk-rds/-/middleware-sdk-rds-3.972.45.tgz",
++      "integrity": "sha512-jbCrk7wz8bi3ky6gZo3VK78i9MEHfzquPEEJofLotstPNc3k+9zEuKOqwgxoqQ4q8ZUW+vQAvVE4eUT1nNIs9A==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.975.1",
++        "@aws-sdk/types": "^3.974.0",
++        "@smithy/core": "^3.29.2",
++        "@smithy/signature-v4": "^5.6.3",
++        "@smithy/types": "^4.16.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/middleware-sdk-s3": {
++      "version": "3.972.62",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/middleware-sdk-s3/-/middleware-sdk-s3-3.972.62.tgz",
++      "integrity": "sha512-k8JJwYXVYlOOjWnPZDThQS1xDFJgi5Dokt73qFlDtrZAbdcint5aIdjB9XgJAAQVP5OoqcefQmh1FYXiPpvsvw==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.975.1",
++        "@aws-sdk/signature-v4-multi-region": "^3.996.39",
++        "@aws-sdk/types": "^3.974.0",
++        "@smithy/core": "^3.29.2",
++        "@smithy/types": "^4.16.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/nested-clients": {
++      "version": "3.997.31",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/nested-clients/-/nested-clients-3.997.31.tgz",
++      "integrity": "sha512-BDHTpwcsZHEBNEJzOg/B1BkFYJxAXY50dau/NyVWs3d51F0WgIUGSWZot/Os+N3KpDhXeaXnz37mWffAvduREw==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.975.1",
++        "@aws-sdk/signature-v4-multi-region": "^3.996.39",
++        "@aws-sdk/types": "^3.974.0",
++        "@smithy/core": "^3.29.2",
++        "@smithy/fetch-http-handler": "^5.6.4",
++        "@smithy/node-http-handler": "^4.9.4",
++        "@smithy/types": "^4.16.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/signature-v4-multi-region": {
++      "version": "3.996.39",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/signature-v4-multi-region/-/signature-v4-multi-region-3.996.39.tgz",
++      "integrity": "sha512-8+srXqYIF8KYMLC4FxMLEM5Ek7kUNibJu1R4m8/fUhhNYIZZz26oGtKkCr8I/HiG2fFQxBvaGgQZT4/mqRCSnA==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/types": "^3.974.0",
++        "@smithy/signature-v4": "^5.6.3",
++        "@smithy/types": "^4.16.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/token-providers": {
++      "version": "3.1083.0",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/token-providers/-/token-providers-3.1083.0.tgz",
++      "integrity": "sha512-s0woKnxuHrExLc5L2ArIH5BMkbonHPtt+5hSBM8oknp9M6QTuUmmAmJ2E0EdzCGONrO+8+ADPqvv6UX0nNcc7A==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.975.1",
++        "@aws-sdk/nested-clients": "^3.997.31",
++        "@aws-sdk/types": "^3.974.0",
++        "@smithy/core": "^3.29.2",
++        "@smithy/types": "^4.16.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/types": {
++      "version": "3.974.0",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/types/-/types-3.974.0.tgz",
++      "integrity": "sha512-QIBrw90CDm4O0UaIIzkU6DrFdeJzEb2Va5EPEVpyldj6sHJxB6cshhStJuhZxk3wR3PmjJlYsjPmY1kNb+KGBg==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@smithy/types": "^4.16.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/xml-builder": {
++      "version": "3.972.34",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/xml-builder/-/xml-builder-3.972.34.tgz",
++      "integrity": "sha512-wHhWL1y7sN3enBA8POrPpQM5jCcmu2ozyhbRei4c8OjVcEaEs6yLucLa/pla457ggS/ysuy7bosagz3HaJkZXA==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@smithy/types": "^4.16.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws/lambda-invoke-store": {
++      "version": "0.3.0",
++      "resolved": "https://registry.npmjs.org/@aws/lambda-invoke-store/-/lambda-invoke-store-0.3.0.tgz",
++      "integrity": "sha512-sl4Bm6yiMNYrZKkqqDFWN0UfnWhlS8ivKxrYl+6t0gCLrqr8y3B2IqZZbFRkfaVVp7C/baApyh71P+LeE1A2sQ==",
++      "license": "Apache-2.0",
++      "engines": {
++        "node": ">=18.0.0"
++      }
++    },
+     "node_modules/@babel/code-frame": {
+       "version": "7.29.7",
+       "resolved": "https://registry.npmjs.org/@babel/code-frame/-/code-frame-7.29.7.tgz",
+@@ -1289,6 +1695,87 @@
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/@smithy/core": {
++      "version": "3.29.2",
++      "resolved": "https://registry.npmjs.org/@smithy/core/-/core-3.29.2.tgz",
++      "integrity": "sha512-DXUk6yU0C1Q1tYvJh1VCtl8QOBcSoZpKwjTPkxT6A4MUQYHvgeKGByL8mrEdxnvhdf9nq5GyzmRb5n/vPgu3Lw==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@smithy/types": "^4.16.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=18.0.0"
++      }
++    },
++    "node_modules/@smithy/credential-provider-imds": {
++      "version": "4.4.7",
++      "resolved": "https://registry.npmjs.org/@smithy/credential-provider-imds/-/credential-provider-imds-4.4.7.tgz",
++      "integrity": "sha512-UEMLOoA0Fl4uYBxh6l0uN0H6EJe/A89OGeDNTteQeXpJ20BcpfIr4wlCY9pel1jEAUHAxaYwuqrYlrKdXE1GKQ==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@smithy/core": "^3.29.2",
++        "@smithy/types": "^4.16.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=18.0.0"
++      }
++    },
++    "node_modules/@smithy/fetch-http-handler": {
++      "version": "5.6.4",
++      "resolved": "https://registry.npmjs.org/@smithy/fetch-http-handler/-/fetch-http-handler-5.6.4.tgz",
++      "integrity": "sha512-psnst7NZWdAEvJvyW8YZEE7xNVMyLrQFfHtyrVFrxNyy+dKWkQ+rqC6oI5ZhxThpUy9RSfEshgm34zqbOxzsRw==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@smithy/core": "^3.29.2",
++        "@smithy/types": "^4.16.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=18.0.0"
++      }
++    },
++    "node_modules/@smithy/node-http-handler": {
++      "version": "4.9.4",
++      "resolved": "https://registry.npmjs.org/@smithy/node-http-handler/-/node-http-handler-4.9.4.tgz",
++      "integrity": "sha512-BNTop/fSOptmoVk8g+efwHCofFh37g70OWGAFES1TeAAJja1K5aAI8rTE26ETSc5k8IQuWY2kAIoPla01NgYrA==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@smithy/core": "^3.29.2",
++        "@smithy/types": "^4.16.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=18.0.0"
++      }
++    },
++    "node_modules/@smithy/signature-v4": {
++      "version": "5.6.3",
++      "resolved": "https://registry.npmjs.org/@smithy/signature-v4/-/signature-v4-5.6.3.tgz",
++      "integrity": "sha512-8qVKKzqh7naF27ePmx0SkUfnGP/wBI9dyaeAmhHvopnbIlItUAmB/e6PkPCU3rRb2v9BY8D4EZXSoydSibatvw==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@smithy/core": "^3.29.2",
++        "@smithy/types": "^4.16.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=18.0.0"
++      }
++    },
++    "node_modules/@smithy/types": {
++      "version": "4.16.0",
++      "resolved": "https://registry.npmjs.org/@smithy/types/-/types-4.16.0.tgz",
++      "integrity": "sha512-aVUabzlBBmY0PfvVgLKQSOGFIL5/7R54JE3uD9a5Ay/jSED61SkuAcCYENNXJzYUvJ1NPrWO0P+rAXHCkbBUKw==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=18.0.0"
++      }
++    },
+     "node_modules/@stablelib/base64": {
+       "version": "1.0.1",
+       "resolved": "https://registry.npmjs.org/@stablelib/base64/-/base64-1.0.1.tgz",
+@@ -2675,6 +3162,12 @@
+         "node": ">=6.0.0"
+       }
+     },
++    "node_modules/bowser": {
++      "version": "2.14.1",
++      "resolved": "https://registry.npmjs.org/bowser/-/bowser-2.14.1.tgz",
++      "integrity": "sha512-tzPjzCxygAKWFOJP011oxFHs57HzIhOEracIgAePE4pqB3LikALKnSzUyU4MGs9/iCEUuHlAJTjTc5M+u7YEGg==",
++      "license": "MIT"
++    },
+     "node_modules/brace-expansion": {
+       "version": "1.1.15",
+       "resolved": "https://registry.npmjs.org/brace-expansion/-/brace-expansion-1.1.15.tgz",
+diff --git a/package.json b/package.json
+index 38d2032..e70aeeb 100644
+--- a/package.json
++++ b/package.json
+@@ -10,6 +10,10 @@
+   },
+   "dependencies": {
+     "@anthropic-ai/sdk": "^0.105.0",
++    "@aws-sdk/client-sts": "^3.1083.0",
++    "@aws-sdk/client-ec2": "^3.1083.0",
++    "@aws-sdk/client-s3": "^3.1083.0",
++    "@aws-sdk/client-rds": "^3.1083.0",
+     "@supabase/ssr": "^0.12.0",
+     "@supabase/supabase-js": "^2.108.2",
+     "jsonwebtoken": "^9.0.3",
+-- 
+2.43.0
+

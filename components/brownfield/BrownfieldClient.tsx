@@ -93,6 +93,7 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
   const [targetCloud, setTargetCloud] = useState<TargetCloud>('aws')
   const [sourceCloud, setSourceCloud] = useState<TargetCloud>('aws')
   const [inputContent, setInputContent] = useState('')
+  const [migrationName, setMigrationName] = useState('')
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState<'audit' | 'plan' | 'terraform'>('audit')
 
@@ -146,7 +147,7 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
       const response = await fetch('/api/brownfield/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input_content: inputContent, input_type: inputType, target_cloud: targetCloud }),
+        body: JSON.stringify({ input_content: inputContent, input_type: inputType, target_cloud: targetCloud, migration_name: migrationName.trim() || null }),
       })
 
       if (!response.ok) {
@@ -334,7 +335,7 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
       const res = await fetch('/api/azure-connect/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ connection_id: azureConnectionId, target_cloud: targetCloud }),
+        body: JSON.stringify({ connection_id: azureConnectionId, target_cloud: targetCloud, migration_name: migrationName.trim() || null }),
       })
       const data = await res.json()
       if (!res.ok) { setAzureError(data.message || data.error || 'Scan failed'); setAzureLoading(false); return }
@@ -389,7 +390,7 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
       const res = await fetch('/api/gcp-connect/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ connection_id: gcpConnectionId, target_cloud: targetCloud }),
+        body: JSON.stringify({ connection_id: gcpConnectionId, target_cloud: targetCloud, migration_name: migrationName.trim() || null }),
       })
       const data = await res.json()
       if (!res.ok) { setGcpError(data.message || data.error || 'Scan failed'); setGcpLoading(false); return }
@@ -459,7 +460,7 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
       const res = await fetch('/api/aws-connect/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ connection_id: connectionId, target_cloud: targetCloud }),
+        body: JSON.stringify({ connection_id: connectionId, target_cloud: targetCloud, migration_name: migrationName.trim() || null }),
       })
       const data = await res.json()
       if (!res.ok) { setConnectError(data.message || data.error || 'Scan failed'); setConnectLoading(false); return }
@@ -601,6 +602,21 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
                 </div>
               </div>
 
+              {/* Migration name — optional, shown above every input path so
+                  the dashboard list isn't just "AWS → AWS migration" x N. */}
+              <div className="mb-5">
+                <label className="block text-xs font-medium text-gray-600 mb-2">
+                  Migration name <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={migrationName}
+                  onChange={e => setMigrationName(e.target.value)}
+                  placeholder="e.g. Prod checkout service → GCP"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-md text-sm outline-none focus:border-black transition-colors"
+                />
+              </div>
+
               {/* Source cloud — only meaningful for auto-discover, since the
                   other input types have their source inferred from the
                   pasted content itself by the Scanner agent. */}
@@ -661,7 +677,7 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
                           sourceCloud === 'aws' ? '--region us-east-1' :
                           sourceCloud === 'azure' ? '--subscription <subscription-id>' :
                           '--project <project-id>'
-                        } --api-key <your-key>`}
+                        } --api-key <your-key>${migrationName.trim() ? ` --name "${migrationName.trim()}"` : ''}`}
                       </code>
                     </div>
                   </div>

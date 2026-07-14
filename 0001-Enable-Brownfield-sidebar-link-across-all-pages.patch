@@ -1,0 +1,108 @@
+From e8bc0e4ebec191b95b4a2fb1400733423093a5a3 Mon Sep 17 00:00:00 2001
+From: ram <chan2006@gmail.com>
+Date: Tue, 7 Jul 2026 07:07:14 +0000
+Subject: [PATCH] Enable Brownfield sidebar link across all pages
+
+Brownfield engine is live and working, so switch the sidebar nav item
+from a disabled 'Soon' placeholder to a real link to /brownfield in:
+- app/dashboard/page.tsx
+- app/project/new/page.tsx
+- components/blueprint/BlueprintDetailClient.tsx
+- components/knowledge-base/KnowledgeBaseClient.tsx
+- components/settings/SettingsClient.tsx
+
+Verified: tsc --noEmit clean, next build succeeds (20/20 pages),
+no new lint errors introduced.
+---
+ app/dashboard/page.tsx                            | 2 +-
+ app/project/new/page.tsx                          | 5 ++---
+ components/blueprint/BlueprintDetailClient.tsx    | 5 ++---
+ components/knowledge-base/KnowledgeBaseClient.tsx | 5 ++---
+ components/settings/SettingsClient.tsx            | 5 ++---
+ 5 files changed, 9 insertions(+), 13 deletions(-)
+
+diff --git a/app/dashboard/page.tsx b/app/dashboard/page.tsx
+index cabc153..6255f5a 100644
+--- a/app/dashboard/page.tsx
++++ b/app/dashboard/page.tsx
+@@ -77,7 +77,7 @@ export default async function DashboardPage() {
+           <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-2 pt-2 pb-1">Workspace</p>
+           <NavItem icon="▦" label="Dashboard" active={true} href="/dashboard" />
+           <NavItem icon="⌂" label="Greenfield" href="/project/new" />
+-          <NavItem icon="⬡" label="Brownfield" href="#" disabled={true} badge="Soon" />
++          <NavItem icon="⬡" label="Brownfield" href="/brownfield" />
+           <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-2 pt-4 pb-1">Configuration</p>
+           <NavItem icon="⊟" label="Knowledge base" href="/knowledge-base" />
+           <NavItem icon="⚙" label="Settings" href="/settings" />
+diff --git a/app/project/new/page.tsx b/app/project/new/page.tsx
+index 72a9902..faac1ef 100644
+--- a/app/project/new/page.tsx
++++ b/app/project/new/page.tsx
+@@ -103,11 +103,10 @@ const [currentStep, setCurrentStep] = useState(1)
+           </div>
+ 
+           <div className="mt-3">
+-            <span className="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-gray-300 opacity-40 cursor-not-allowed">
++            <a href="/brownfield" className="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-gray-500 hover:bg-gray-50 hover:text-black transition-colors">
+               <span className="text-base w-4">⬡</span>
+               <span>Brownfield</span>
+-              <span className="ml-auto text-[10px] border border-dashed border-gray-300 px-1.5 py-0.5 rounded-full text-gray-400">Soon</span>
+-            </span>
++            </a>
+           </div>
+         </div>
+ 
+diff --git a/components/blueprint/BlueprintDetailClient.tsx b/components/blueprint/BlueprintDetailClient.tsx
+index 083e55e..2dab4ce 100644
+--- a/components/blueprint/BlueprintDetailClient.tsx
++++ b/components/blueprint/BlueprintDetailClient.tsx
+@@ -142,10 +142,9 @@ export default function BlueprintDetailClient({ blueprint, user }: Props) {
+           </div>
+ 
+           <div className="mt-2">
+-            <span className="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-gray-300 opacity-40 cursor-not-allowed">
++            <a href="/brownfield" className="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-gray-500 hover:bg-gray-50 hover:text-black transition-colors">
+               <span className="w-4">⬡</span> Brownfield
+-              <span className="ml-auto text-[10px] border border-dashed border-gray-200 px-1.5 py-0.5 rounded-full">Soon</span>
+-            </span>
++            </a>
+           </div>
+ 
+           <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-2 pt-4 pb-1">Configuration</p>
+diff --git a/components/knowledge-base/KnowledgeBaseClient.tsx b/components/knowledge-base/KnowledgeBaseClient.tsx
+index d238f00..54e058b 100644
+--- a/components/knowledge-base/KnowledgeBaseClient.tsx
++++ b/components/knowledge-base/KnowledgeBaseClient.tsx
+@@ -151,10 +151,9 @@ export default function KnowledgeBaseClient({ user, initialFiles }: Props) {
+           <a href="/project/new" className="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-gray-500 hover:bg-gray-50 hover:text-black transition-colors">
+             <span className="w-4">⌂</span> Greenfield
+           </a>
+-          <span className="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-gray-300 opacity-40 cursor-not-allowed">
++          <a href="/brownfield" className="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-gray-500 hover:bg-gray-50 hover:text-black transition-colors">
+             <span className="w-4">⬡</span> Brownfield
+-            <span className="ml-auto text-[10px] border border-dashed border-gray-200 px-1.5 py-0.5 rounded-full">Soon</span>
+-          </span>
++          </a>
+           <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-2 pt-4 pb-1">Configuration</p>
+           <a href="/knowledge-base" className="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm bg-black text-white transition-colors">
+             <span className="w-4">⊟</span> Knowledge base
+diff --git a/components/settings/SettingsClient.tsx b/components/settings/SettingsClient.tsx
+index 67914bc..e4e69ea 100644
+--- a/components/settings/SettingsClient.tsx
++++ b/components/settings/SettingsClient.tsx
+@@ -96,10 +96,9 @@ export default function SettingsClient({ user }: Props) {
+           <a href="/project/new" className="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-gray-500 hover:bg-gray-50 hover:text-black transition-colors">
+             <span className="w-4">⌂</span> Greenfield
+           </a>
+-          <span className="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-gray-300 opacity-40 cursor-not-allowed">
++          <a href="/brownfield" className="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-gray-500 hover:bg-gray-50 hover:text-black transition-colors">
+             <span className="w-4">⬡</span> Brownfield
+-            <span className="ml-auto text-[10px] border border-dashed border-gray-200 px-1.5 py-0.5 rounded-full">Soon</span>
+-          </span>
++          </a>
+           <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-2 pt-4 pb-1">Configuration</p>
+           <a href="/knowledge-base" className="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-gray-500 hover:bg-gray-50 hover:text-black transition-colors">
+             <span className="w-4">⊟</span> Knowledge base
+-- 
+2.43.0
+

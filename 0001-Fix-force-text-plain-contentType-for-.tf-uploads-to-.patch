@@ -1,0 +1,51 @@
+From f9cce01b06a02c3650618624dc0fc1ffcedcfc62 Mon Sep 17 00:00:00 2001
+From: ram <chan2006@gmail.com>
+Date: Wed, 8 Jul 2026 15:13:02 +0000
+Subject: [PATCH] Fix: force text/plain contentType for .tf uploads to
+ Knowledge Base
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Uploading a .tf file failed at the Supabase Storage layer with
+'mime type application/octet-stream is not supported' — browsers
+have no registered MIME type for Terraform files, so they report
+it as generic binary, which the bucket's MIME allowlist rejects.
+
+Pre-existing bug, just never surfaced before since this was the
+first real test of uploading an actual .tf file to the KB (prior
+Brownfield testing used pasted code, not file uploads). The scan
+feature itself worked correctly — this failure happened on the
+storage upload call afterward.
+
+Fix: explicitly set contentType: 'text/plain' when uploading .tf
+files, instead of trusting the browser's MIME guess. text/plain is
+already in the bucket's accepted list (plain .txt uploads already
+work). Non-.tf uploads are unaffected — same fallback behaviour
+as before.
+
+Verified: tsc --noEmit clean, next build succeeds, diff confirmed
+as a single 4-line change to one file.
+---
+ components/knowledge-base/KnowledgeBaseClient.tsx | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/components/knowledge-base/KnowledgeBaseClient.tsx b/components/knowledge-base/KnowledgeBaseClient.tsx
+index c3a1c65..e3a6bd1 100644
+--- a/components/knowledge-base/KnowledgeBaseClient.tsx
++++ b/components/knowledge-base/KnowledgeBaseClient.tsx
+@@ -116,7 +116,10 @@ export default function KnowledgeBaseClient({ user, initialFiles }: Props) {
+ 
+     const { error } = await supabase.storage
+       .from('knowledge-base')
+-      .upload(path, file, { upsert: false })
++      .upload(path, file, {
++        upsert: false,
++        contentType: file.name.endsWith('.tf') ? 'text/plain' : file.type || 'application/octet-stream',
++      })
+ 
+     if (error) {
+       showToast('Upload failed: ' + error.message)
+-- 
+2.43.0
+

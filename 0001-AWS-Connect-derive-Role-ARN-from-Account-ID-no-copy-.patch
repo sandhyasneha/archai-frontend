@@ -1,0 +1,260 @@
+From beff96b7f15ec9b2d384646bac8ccb509fd54bca Mon Sep 17 00:00:00 2001
+From: ram <chan2006@gmail.com>
+Date: Mon, 13 Jul 2026 16:48:33 +0000
+Subject: [PATCH] AWS Connect: derive Role ARN from Account ID, no
+ copy-paste-back needed
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Symmetric fix to the Azure auto-detect improvement, applied to AWS.
+The Role ARN's shape is fully deterministic — it's just
+arn:aws:iam::<account_id>:role/ArchAI-ReadOnly-<connection_id>,
+and we already control that naming convention. Asking for the
+12-digit Account ID upfront (non-secret, easy to find) lets us
+compute the exact ARN ourselves, removing the need to copy it back
+from CloudFormation's Outputs tab after stack creation.
+
+- app/api/aws-connect/init: now requires account_id (validated as
+  exactly 12 digits), computes the Role ARN immediately using the
+  same naming convention already proven correct in live testing
+  (ArchAI-ReadOnly-<StackName>, matching the CFN template's
+  RoleName), and stores it on the connection row right away.
+- app/api/aws-connect/confirm: simplified to only need
+  connection_id — reads the already-computed role_arn from the DB
+  instead of requiring the client to submit it.
+- components/brownfield/BrownfieldClient.tsx: added an AWS Account
+  ID input before 'Launch Stack' (with a hint on where to find it),
+  and removed the Role ARN paste-back field entirely — 'Verify &
+  Connect' is now a single click with nothing to copy.
+- SQL: added account_id column to aws_connections (migration
+  provided separately, additive/non-breaking).
+
+Verified: tsc --noEmit clean, next build succeeds, no new lint
+errors beyond the one pre-existing no-html-link-for-pages issue.
+---
+ app/api/aws-connect/confirm/route.ts       | 14 +++---
+ app/api/aws-connect/init/route.ts          | 16 ++++++-
+ components/brownfield/BrownfieldClient.tsx | 52 +++++++++++++---------
+ 3 files changed, 53 insertions(+), 29 deletions(-)
+
+diff --git a/app/api/aws-connect/confirm/route.ts b/app/api/aws-connect/confirm/route.ts
+index f9808cb..d8fb210 100644
+--- a/app/api/aws-connect/confirm/route.ts
++++ b/app/api/aws-connect/confirm/route.ts
+@@ -5,7 +5,6 @@ import { z } from 'zod'
+ 
+ const Schema = z.object({
+   connection_id: z.string().uuid(),
+-  role_arn: z.string().min(20).regex(/^arn:aws:iam::\d{12}:role\/.+$/, 'Not a valid IAM role ARN'),
+ })
+ 
+ export async function POST(req: NextRequest) {
+@@ -19,18 +18,21 @@ export async function POST(req: NextRequest) {
+     return Response.json({ error: 'Invalid input', details: parsed.error.flatten() }, { status: 400 })
+   }
+ 
+-  const { connection_id, role_arn } = parsed.data
++  const { connection_id } = parsed.data
+ 
+   const { data: connection } = await supabase
+     .from('aws_connections')
+-    .select('id, external_id, user_id')
++    .select('id, external_id, role_arn, user_id')
+     .eq('id', connection_id)
+     .eq('user_id', user.id)
+     .single()
+ 
+   if (!connection) return Response.json({ error: 'Connection not found' }, { status: 404 })
++  if (!connection.role_arn) {
++    return Response.json({ error: 'No Role ARN computed for this connection — try starting the connection again.' }, { status: 400 })
++  }
+ 
+-  const result = await verifyRoleAssumable(role_arn, connection.external_id)
++  const result = await verifyRoleAssumable(connection.role_arn, connection.external_id)
+ 
+   if (!result.ok) {
+     await supabase
+@@ -40,13 +42,13 @@ export async function POST(req: NextRequest) {
+     return Response.json({
+       error: 'Could not assume this role',
+       message: result.error,
+-      hint: 'Double-check the Role ARN was copied exactly from the CloudFormation Outputs tab, and that the stack finished creating successfully.',
++      hint: 'Confirm the CloudFormation stack finished creating successfully (status CREATE_COMPLETE), and that the AWS Account ID you entered matches the account you created the stack in.',
+     }, { status: 400 })
+   }
+ 
+   await supabase
+     .from('aws_connections')
+-    .update({ role_arn, status: 'active', verified_at: new Date().toISOString() })
++    .update({ status: 'active', verified_at: new Date().toISOString() })
+     .eq('id', connection_id)
+ 
+   return Response.json({ ok: true, assumed_as: result.assumedArn })
+diff --git a/app/api/aws-connect/init/route.ts b/app/api/aws-connect/init/route.ts
+index 64de27b..ce60b58 100644
+--- a/app/api/aws-connect/init/route.ts
++++ b/app/api/aws-connect/init/route.ts
+@@ -5,6 +5,7 @@ import { z } from 'zod'
+ 
+ const Schema = z.object({
+   region: z.string().min(1).default('us-east-1'),
++  account_id: z.string().regex(/^\d{12}$/, 'AWS Account ID must be exactly 12 digits'),
+ })
+ 
+ export async function POST(req: NextRequest) {
+@@ -14,7 +15,10 @@ export async function POST(req: NextRequest) {
+ 
+   const body = await req.json().catch(() => ({}))
+   const parsed = Schema.safeParse(body)
+-  const region = parsed.success ? parsed.data.region : 'us-east-1'
++  if (!parsed.success) {
++    return Response.json({ error: parsed.error.issues[0]?.message ?? 'Invalid input' }, { status: 400 })
++  }
++  const { region, account_id } = parsed.data
+ 
+   const externalId = `archai-${crypto.randomBytes(16).toString('hex')}`
+ 
+@@ -24,6 +28,7 @@ export async function POST(req: NextRequest) {
+       user_id: user.id,
+       external_id: externalId,
+       region,
++      account_id,
+       status: 'pending',
+     })
+     .select('id, external_id')
+@@ -36,15 +41,22 @@ export async function POST(req: NextRequest) {
+     return Response.json({ error: 'ArchAI CloudFormation template is not configured yet' }, { status: 500 })
+   }
+ 
++  const stackName = `ArchAI-ReadOnly-${data.id.slice(0, 8)}`
++  // Matches the CFN template's RoleName: !Sub 'ArchAI-ReadOnly-${AWS::StackName}'
++  const roleArn = `arn:aws:iam::${account_id}:role/ArchAI-ReadOnly-${stackName}`
++
++  await supabase.from('aws_connections').update({ role_arn: roleArn }).eq('id', data.id)
++
+   const quickCreateUrl =
+     `https://console.aws.amazon.com/cloudformation/home?region=${encodeURIComponent(region)}` +
+-    `#/stacks/quickcreate?stackName=ArchAI-ReadOnly-${data.id.slice(0, 8)}` +
++    `#/stacks/quickcreate?stackName=${stackName}` +
+     `&templateURL=${encodeURIComponent(templateUrl)}` +
+     `&param_ExternalId=${encodeURIComponent(externalId)}`
+ 
+   return Response.json({
+     connection_id: data.id,
+     external_id: data.external_id,
++    role_arn: roleArn,
+     quick_create_url: quickCreateUrl,
+   })
+ }
+diff --git a/components/brownfield/BrownfieldClient.tsx b/components/brownfield/BrownfieldClient.tsx
+index 253ce7f..fa36931 100644
+--- a/components/brownfield/BrownfieldClient.tsx
++++ b/components/brownfield/BrownfieldClient.tsx
+@@ -110,7 +110,7 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
+   const [connectStep, setConnectStep] = useState<'start' | 'awaiting-arn' | 'connected'>('start')
+   const [connectionId, setConnectionId] = useState<string | null>(null)
+   const [quickCreateUrl, setQuickCreateUrl] = useState('')
+-  const [roleArnInput, setRoleArnInput] = useState('')
++  const [awsAccountId, setAwsAccountId] = useState('')
+   const [connectError, setConnectError] = useState('')
+   const [connectLoading, setConnectLoading] = useState(false)
+   const [azureStep, setAzureStep] = useState<'start' | 'awaiting-rbac' | 'connected'>('start')
+@@ -305,13 +305,17 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
+   }
+ 
+   async function startAwsConnect() {
++    if (!/^\d{12}$/.test(awsAccountId.trim())) {
++      setConnectError('AWS Account ID must be exactly 12 digits')
++      return
++    }
+     setConnectError('')
+     setConnectLoading(true)
+     try {
+       const res = await fetch('/api/aws-connect/init', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+-        body: JSON.stringify({ region: 'us-east-1' }),
++        body: JSON.stringify({ region: 'us-east-1', account_id: awsAccountId.trim() }),
+       })
+       const data = await res.json()
+       if (!res.ok) { setConnectError(data.error || 'Failed to start connection'); setConnectLoading(false); return }
+@@ -326,14 +330,14 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
+   }
+ 
+   async function confirmAwsConnect() {
+-    if (!connectionId || !roleArnInput.trim()) return
++    if (!connectionId) return
+     setConnectError('')
+     setConnectLoading(true)
+     try {
+       const res = await fetch('/api/aws-connect/confirm', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+-        body: JSON.stringify({ connection_id: connectionId, role_arn: roleArnInput.trim() }),
++        body: JSON.stringify({ connection_id: connectionId }),
+       })
+       const data = await res.json()
+       if (!res.ok) {
+@@ -584,35 +588,41 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
+                   )}
+ 
+                   {connectStep === 'start' && (
+-                    <button
+-                      onClick={startAwsConnect}
+-                      disabled={connectLoading}
+-                      className="px-5 py-2.5 bg-black text-white rounded-md text-sm font-medium hover:opacity-85 transition-opacity disabled:opacity-50"
+-                    >
+-                      {connectLoading ? 'Starting...' : 'Launch Stack in AWS Console →'}
+-                    </button>
++                    <div className="flex flex-col gap-3">
++                      <div>
++                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Your AWS Account ID</label>
++                        <input
++                          type="text"
++                          value={awsAccountId}
++                          onChange={e => setAwsAccountId(e.target.value)}
++                          placeholder="123456789012"
++                          className="w-full px-3 py-2.5 border border-gray-200 rounded-md text-sm font-mono outline-none focus:border-black transition-colors"
++                        />
++                        <p className="text-[11px] text-gray-400 mt-1">Find this in the top-right of the AWS Console, or run `aws sts get-caller-identity`.</p>
++                      </div>
++                      <button
++                        onClick={startAwsConnect}
++                        disabled={connectLoading || !/^\d{12}$/.test(awsAccountId.trim())}
++                        className="px-5 py-2.5 bg-black text-white rounded-md text-sm font-medium hover:opacity-85 transition-opacity disabled:opacity-50 self-start"
++                      >
++                        {connectLoading ? 'Starting...' : 'Launch Stack in AWS Console →'}
++                      </button>
++                    </div>
+                   )}
+ 
+                   {connectStep === 'awaiting-arn' && (
+                     <div className="flex flex-col gap-3">
+                       <p className="text-xs text-gray-500">
+                         A new tab opened to AWS CloudFormation with the stack pre-filled — click{' '}
+-                        <strong>Create stack</strong> there. Once it finishes (usually under a minute), open the{' '}
+-                        <strong>Outputs</strong> tab and copy the <code className="bg-gray-100 px-1 rounded">RoleArn</code> value.
++                        <strong>Create stack</strong> there and wait for it to finish (usually under a minute).
++                        Then just click Verify below — ArchAI already knows the role it needs to check.
+                       </p>
+                       <a href={quickCreateUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-black underline">
+                         Re-open the AWS Console link
+                       </a>
+-                      <input
+-                        type="text"
+-                        value={roleArnInput}
+-                        onChange={e => setRoleArnInput(e.target.value)}
+-                        placeholder="arn:aws:iam::123456789012:role/ArchAI-ReadOnly-..."
+-                        className="w-full px-3 py-2.5 border border-gray-200 rounded-md text-sm font-mono outline-none focus:border-black transition-colors"
+-                      />
+                       <button
+                         onClick={confirmAwsConnect}
+-                        disabled={connectLoading || !roleArnInput.trim()}
++                        disabled={connectLoading}
+                         className="px-5 py-2.5 bg-black text-white rounded-md text-sm font-medium hover:opacity-85 transition-opacity disabled:opacity-50 self-start"
+                       >
+                         {connectLoading ? 'Verifying...' : 'Verify & Connect'}
+-- 
+2.43.0
+

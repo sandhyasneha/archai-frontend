@@ -1,0 +1,43 @@
+From d426feb547d3de5f0a7c282477fa45e80d2cb321 Mon Sep 17 00:00:00 2001
+From: ram <chan2006@gmail.com>
+Date: Tue, 7 Jul 2026 16:37:39 +0000
+Subject: [PATCH] Fix: make /terms and /privacy publicly accessible
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The auth middleware's isPublic allowlist didn't include /terms or
+/privacy, so any signed-out visitor clicking those links (from the
+footer, or trying to read them before creating an account) was
+redirected straight to /signin without ever seeing the page —
+defeating the point of having them linked from the registration
+checkbox and footer in the first place.
+
+Added path.startsWith('/terms') and path.startsWith('/privacy') to
+the existing isPublic check. No other routes affected — dashboard,
+brownfield, blueprint, settings, and admin remain fully gated
+behind authentication exactly as before.
+
+Verified: tsc --noEmit clean, next build succeeds (22/22 pages).
+---
+ lib/supabase/middleware.ts | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/lib/supabase/middleware.ts b/lib/supabase/middleware.ts
+index b22fe57..384c816 100644
+--- a/lib/supabase/middleware.ts
++++ b/lib/supabase/middleware.ts
+@@ -37,7 +37,9 @@ export async function updateSession(request: NextRequest) {
+     path.startsWith('/verify') ||
+     path.startsWith('/auth/callback') ||
+     path.startsWith('/auth/reset-password') ||
+-    path.startsWith('/api/contact')
++    path.startsWith('/api/contact') ||
++    path.startsWith('/terms') ||
++    path.startsWith('/privacy')
+ 
+   if (!user && !isPublic) {
+     const url = request.nextUrl.clone()
+-- 
+2.43.0
+

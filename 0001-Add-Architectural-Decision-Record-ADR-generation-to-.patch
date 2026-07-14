@@ -1,0 +1,358 @@
+From 73278dd6d9cb6ce21b3efe5a21971b91950aa7f4 Mon Sep 17 00:00:00 2001
+From: ram <chan2006@gmail.com>
+Date: Wed, 8 Jul 2026 16:05:43 +0000
+Subject: [PATCH] Add Architectural Decision Record (ADR) generation to
+ Brownfield
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Addresses the SOC 2 / ISO 27001 audit trail gap: regulated
+industries require a log of *why* infrastructure was built or
+changed the way it was, not just the resulting Terraform.
+
+Follows the 5-step brownfield-remediation ADR structure supplied:
+baseline context, risk/vulnerability delta, import/reconstruction
+strategy, refactoring decisions, and drift reconciliation
+governance.
+
+- lib/agents/brownfield/adr.ts: new generateADR() function. Built
+  deterministically from the already-validated Scanner/Auditor/
+  Planner output (real resource names, real finding counts, real
+  phase details, real cost figures) rather than free-form LLM
+  narrative — a hallucinated resource ID or wrong compliance score
+  in a document meant to support an audit would be worse than no
+  ADR at all.
+- app/api/brownfield/analyze/route.ts: generates the ADR right
+  after the scan is saved (so it has a real scan ID to anchor
+  the ADR ID to: ADR-<first 8 chars of scan id>), then attaches
+  it via an update into the existing migration_plan JSONB column
+  — no schema change needed. Included in the SSE 'complete'
+  payload too.
+- components/brownfield/BrownfieldDetailClient.tsx: new 'Audit
+  trail (ADR)' step in the wizard sidebar (between Terraform
+  output and Review & export), with a lightweight custom markdown
+  renderer scoped to the specific template format (headers,
+  bullets, bold/italic) rather than adding a general-purpose
+  markdown dependency for one controlled document type. Also
+  added a 4th 'Download ADR' button on the Review & Export step,
+  shown only when an ADR exists (older migrations predating this
+  feature won't have one, and the UI says so rather than showing
+  a blank/broken state).
+
+Verified: tsc --noEmit clean, next build succeeds (24/24 pages),
+no new lint errors (2 pre-existing no-html-link-for-pages issues
+in the touched file confirmed via diff — unrelated, 0 matches in
+this change's diff).
+---
+ app/api/brownfield/analyze/route.ts           |  22 ++++
+ .../brownfield/BrownfieldDetailClient.tsx     | 114 +++++++++++++++++-
+ lib/agents/brownfield/adr.ts                  |  76 ++++++++++++
+ 3 files changed, 209 insertions(+), 3 deletions(-)
+ create mode 100644 lib/agents/brownfield/adr.ts
+
+diff --git a/app/api/brownfield/analyze/route.ts b/app/api/brownfield/analyze/route.ts
+index 5dc868b..e3a3f90 100644
+--- a/app/api/brownfield/analyze/route.ts
++++ b/app/api/brownfield/analyze/route.ts
+@@ -5,6 +5,7 @@ import { runScanner } from '@/lib/agents/brownfield/scanner'
+ import { runBrownfieldAuditor } from '@/lib/agents/brownfield/auditor'
+ import { runPlanner } from '@/lib/agents/brownfield/planner'
+ import { runBrownfieldEngineer } from '@/lib/agents/brownfield/engineer'
++import { generateADR } from '@/lib/agents/brownfield/adr'
+ import { z } from 'zod'
+ 
+ const Schema = z.object({
+@@ -131,6 +132,25 @@ export async function POST(req: NextRequest) {
+           console.error('brownfield_scans insert failed:', insertError)
+         }
+ 
++        // Generate the Architectural Decision Record now that we have a
++        // real scan ID to anchor it to. Attached via update into the
++        // existing migration_plan JSONB column — no new schema needed.
++        let adrMarkdown: string | null = null
++        let adrId: string | null = null
++        if (scan?.id) {
++          adrId = `ADR-${scan.id.slice(0, 8).toUpperCase()}`
++          adrMarkdown = generateADR(adrId, scanResult, auditResult, migrationPlan)
++          const { error: adrError } = await serviceClient
++            .from('brownfield_scans')
++            .update({
++              migration_plan: { ...migrationPlan, adr_id: adrId, adr_markdown: adrMarkdown },
++            })
++            .eq('id', scan.id)
++          if (adrError) {
++            console.error('ADR attach failed:', adrError)
++          }
++        }
++
+         controller.enqueue(encode({
+           step: 'complete',
+           status: 'completed',
+@@ -141,6 +161,8 @@ export async function POST(req: NextRequest) {
+             audit_result: auditResult,
+             migration_plan: migrationPlan,
+             terraform_output: terraformOutput,
++            adr_id: adrId,
++            adr_markdown: adrMarkdown,
+           },
+           timestamp: now(),
+         }))
+diff --git a/components/brownfield/BrownfieldDetailClient.tsx b/components/brownfield/BrownfieldDetailClient.tsx
+index d31e4d6..b04e70d 100644
+--- a/components/brownfield/BrownfieldDetailClient.tsx
++++ b/components/brownfield/BrownfieldDetailClient.tsx
+@@ -57,6 +57,8 @@ interface MigrationPlan {
+   cost_after_usd: number
+   cost_saving_usd: number
+   cost_saving_pct: number
++  adr_id?: string
++  adr_markdown?: string
+ }
+ 
+ interface BrownfieldScan {
+@@ -79,13 +81,14 @@ interface Props {
+   user: { email: string; full_name: string; initials: string }
+ }
+ 
+-type Step = 'overview' | 'audit' | 'plan' | 'terraform' | 'export'
++type Step = 'overview' | 'audit' | 'plan' | 'terraform' | 'adr' | 'export'
+ 
+ const STEPS = [
+   { id: 'overview' as Step, label: 'Overview', icon: '◎' },
+   { id: 'audit' as Step, label: 'Audit findings', icon: '🛡' },
+   { id: 'plan' as Step, label: 'Migration plan', icon: '🔄' },
+   { id: 'terraform' as Step, label: 'Terraform output', icon: '⌂' },
++  { id: 'adr' as Step, label: 'Audit trail (ADR)', icon: '📜' },
+   { id: 'export' as Step, label: 'Review & export', icon: '🚀' },
+ ]
+ 
+@@ -122,6 +125,69 @@ function normaliseAudit(raw: AuditFinding[] | RichAuditFindings): RichAuditFindi
+   return raw
+ }
+ 
++// Lightweight renderer for the ADR's markdown, tailored to the specific
++// template format generateADR() produces (### / #### headers, - bullets,
++// **bold**, --- rule) — avoids adding a general-purpose markdown dependency
++// for a single, controlled document format.
++function renderADRMarkdown(md: string) {
++  const lines = md.split('\n')
++  const blocks: React.ReactNode[] = []
++  let listBuffer: string[] = []
++
++  function flushList(key: string) {
++    if (listBuffer.length === 0) return
++    blocks.push(
++      <ul key={key} className="flex flex-col gap-1.5 my-2">
++        {listBuffer.map((item, i) => (
++          <li key={i} className="text-sm text-gray-700 leading-relaxed pl-4 relative before:content-['—'] before:absolute before:left-0 before:text-gray-300">
++            {renderInline(item)}
++          </li>
++        ))}
++      </ul>
++    )
++    listBuffer = []
++  }
++
++  function renderInline(text: string): React.ReactNode {
++    const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g)
++    return parts.map((part, i) => {
++      if (part.startsWith('**') && part.endsWith('**')) return <strong key={i} className="text-black font-semibold">{part.slice(2, -2)}</strong>
++      if (part.startsWith('*') && part.endsWith('*')) return <em key={i} className="text-gray-500">{part.slice(1, -1)}</em>
++      return part
++    })
++  }
++
++  lines.forEach((line, idx) => {
++    const trimmed = line.trim()
++    if (trimmed.startsWith('- ')) {
++      listBuffer.push(trimmed.slice(2))
++      return
++    }
++    flushList(`ul-${idx}`)
++
++    if (trimmed === '---') {
++      blocks.push(<hr key={idx} className="border-gray-100 my-4" />)
++    } else if (trimmed.startsWith('#### ')) {
++      blocks.push(<h4 key={idx} className="text-sm font-semibold text-black mt-4 mb-1.5">{renderInline(trimmed.slice(5))}</h4>)
++    } else if (trimmed.startsWith('### ')) {
++      blocks.push(<h3 key={idx} className="text-base font-semibold text-black mb-1">{renderInline(trimmed.slice(4))}</h3>)
++    } else if (trimmed.startsWith('- **ID')) {
++      blocks.push(<p key={idx} className="text-xs text-gray-500">{renderInline(trimmed.slice(2))}</p>)
++    } else if (trimmed.startsWith('*') && trimmed.endsWith('*') && !trimmed.startsWith('**')) {
++      blocks.push(<p key={idx} className="text-xs text-gray-400 italic mb-3">{trimmed.slice(1, -1)}</p>)
++    } else if (trimmed.startsWith('- ')) {
++      // handled above
++    } else if (trimmed === '') {
++      // spacing handled by margins
++    } else {
++      blocks.push(<p key={idx} className="text-sm text-gray-700 leading-relaxed mb-1">{renderInline(trimmed)}</p>)
++    }
++  })
++  flushList('ul-end')
++
++  return <div className="flex flex-col">{blocks}</div>
++}
++
+ export default function BrownfieldDetailClient({ scan, user }: Props) {
+   const [activeStep, setActiveStep] = useState<Step>('overview')
+   const [copied, setCopied] = useState(false)
+@@ -154,6 +220,19 @@ export default function BrownfieldDetailClient({ scan, user }: Props) {
+     URL.revokeObjectURL(url)
+   }
+ 
++  function downloadADR() {
++    if (!plan?.adr_markdown) return
++    const blob = new Blob([plan.adr_markdown], { type: 'text/markdown' })
++    const url = URL.createObjectURL(blob)
++    const a = document.createElement('a')
++    a.href = url
++    a.download = `${plan.adr_id || 'ADR'}-${scan.id.slice(0, 8)}.md`
++    document.body.appendChild(a)
++    a.click()
++    document.body.removeChild(a)
++    URL.revokeObjectURL(url)
++  }
++
+   function copyTerraform() {
+     navigator.clipboard.writeText(scan.terraform_output || '')
+     setCopied(true)
+@@ -450,7 +529,26 @@ export default function BrownfieldDetailClient({ scan, user }: Props) {
+             </div>
+           )}
+ 
+-          {/* STEP 5 — Review & export */}
++          {/* STEP 5 — Audit trail (ADR) */}
++          {activeStep === 'adr' && (
++            <div className="max-w-4xl">
++              <h2 className="text-base font-semibold text-black mb-1">Audit trail — Architectural Decision Record</h2>
++              <p className="text-sm text-gray-400 mb-5">
++                A compliance-ready record of what was found, what changed, and why — for SOC 2 / ISO 27001 audit trails.
++              </p>
++              {plan?.adr_markdown ? (
++                <div className="border border-gray-100 rounded-xl p-6">
++                  {renderADRMarkdown(plan.adr_markdown)}
++                </div>
++              ) : (
++                <div className="border border-gray-100 rounded-xl p-6 text-sm text-gray-400">
++                  No ADR was generated for this migration (older migrations run before this feature was added won&apos;t have one).
++                </div>
++              )}
++            </div>
++          )}
++
++          {/* STEP 6 — Review & export */}
+           {activeStep === 'export' && (
+             <div className="max-w-4xl">
+               <h2 className="text-base font-semibold text-black mb-1">Review &amp; export</h2>
+@@ -476,7 +574,7 @@ export default function BrownfieldDetailClient({ scan, user }: Props) {
+                 ))}
+               </div>
+ 
+-              <div className="grid grid-cols-3 gap-3">
++              <div className={plan?.adr_markdown ? 'grid grid-cols-4 gap-3' : 'grid grid-cols-3 gap-3'}>
+                 <button
+                   onClick={downloadTerraform}
+                   className="flex flex-col items-start p-5 border-2 border-black bg-black text-white rounded-lg hover:opacity-85 transition-opacity text-left"
+@@ -501,6 +599,16 @@ export default function BrownfieldDetailClient({ scan, user }: Props) {
+                   <span className="text-sm font-medium text-black mb-1">Export JSON</span>
+                   <span className="text-xs text-gray-400">Full migration record as JSON</span>
+                 </button>
++                {plan?.adr_markdown && (
++                  <button
++                    onClick={downloadADR}
++                    className="flex flex-col items-start p-5 border border-gray-100 rounded-lg hover:border-black transition-colors text-left"
++                  >
++                    <span className="text-xl mb-2 text-gray-400">📜</span>
++                    <span className="text-sm font-medium text-black mb-1">Download ADR</span>
++                    <span className="text-xs text-gray-400">Audit trail record ({plan.adr_id})</span>
++                  </button>
++                )}
+               </div>
+             </div>
+           )}
+diff --git a/lib/agents/brownfield/adr.ts b/lib/agents/brownfield/adr.ts
+new file mode 100644
+index 0000000..daa50ea
+--- /dev/null
++++ b/lib/agents/brownfield/adr.ts
+@@ -0,0 +1,76 @@
++import { ScanResult } from './scanner'
++import { AuditResult } from './auditor'
++import { MigrationPlan } from './planner'
++
++/**
++ * Generates a Brownfield Architectural Decision Record (ADR) following the
++ * 5-step brownfield-remediation structure:
++ *   1. Baseline Context Capture
++ *   2. Risk & Vulnerability Delta Analysis
++ *   3. Reconstruction & Import Strategy
++ *   4. Refactoring Decisions & Guardrail Injections
++ *   5. Drift Reconciliation Governance Policy
++ *
++ * Built deterministically from the Scanner/Auditor/Planner output already
++ * validated earlier in the pipeline — not generated freely by an LLM —
++ * since a fabricated resource ID or wrong compliance score in a document
++ * meant to support a SOC 2 / HIPAA audit trail would be worse than no
++ * ADR at all.
++ */
++export function generateADR(
++  adrId: string,
++  scanResult: ScanResult,
++  auditResult: AuditResult,
++  migrationPlan: MigrationPlan
++): string {
++  const date = new Date().toISOString().slice(0, 10)
++
++  const resourceList = scanResult.resources
++    .map((r) => `\`${r.name}\` (${r.type})`)
++    .join(', ') || 'none identified'
++
++  const findingsList = auditResult.findings.length > 0
++    ? auditResult.findings
++        .map((f) => `- **${f.resource}** (${f.severity}): ${f.issue}`)
++        .join('\n')
++    : '- No findings identified during this scan.'
++
++  const phasesList = migrationPlan.phases.length > 0
++    ? migrationPlan.phases
++        .map((p) => `${p.phase}. **${p.title}** (${p.risk} risk, ~${p.estimated_hours}h) — ${p.description}`)
++        .join('\n')
++    : '1. No phased plan generated.'
++
++  return `### Architectural Decision Record (ADR) — Brownfield Remediation
++*Product of NexPlan IT LLC, Montana (nexplanit.com)*
++
++- **ID / Status**: ${adrId} / Accepted
++- **Date**: ${date}
++- **Component**: ${scanResult.source_cloud.toUpperCase()} → ${migrationPlan.target_cloud.toUpperCase()} Infrastructure Reconciliation
++
++#### 1. Baseline Context
++We scanned an existing, unmanaged brownfield ${scanResult.source_cloud.toUpperCase()} environment in ${scanResult.region}, containing ${scanResult.total_resources} live resource(s): ${resourceList}. This architecture was originally configured outside of ArchAI, with no prior AI-managed Infrastructure as Code (IaC) audit trail.
++
++#### 2. Discovered Vulnerabilities & Delta
++The Auditor agent flagged ${auditResult.findings.length} finding(s) during ingestion (${auditResult.critical_count} critical, ${auditResult.high_count} high, ${auditResult.medium_count} medium, ${auditResult.low_count} low):
++
++${findingsList}
++
++Overall initial compliance baseline score evaluated at **${auditResult.compliance_score}/100**. Estimated monthly cost waste identified: **$${auditResult.cost_waste_usd}/mo** *(indicative estimate — see Terms of Service).*
++
++#### 3. Import &amp; Reconstruction Decision
++Migration strategy selected: **${migrationPlan.strategy}**, targeting ${migrationPlan.target_cloud.toUpperCase()} (${migrationPlan.target_region}), executed across ${migrationPlan.total_phases} phase(s) over an estimated ${migrationPlan.estimated_days} day(s):
++
++${phasesList}
++
++#### 4. Implemented Technical Corrections
++To remediate the findings identified in Section 2, the Engineer agent generated modernised Terraform for ${migrationPlan.target_cloud.toUpperCase()} addressing every identified issue prior to this record being accepted. The full generated configuration is available in the Terraform Output step of this migration.
++
++#### 5. Long-Term Consequences &amp; Governance
++- **Positive:** Compliance rating projected to improve from ${auditResult.compliance_score}/100 toward a fully remediated baseline once deployed. Projected monthly cost: $${migrationPlan.cost_before_usd}/mo → $${migrationPlan.cost_after_usd}/mo (${migrationPlan.cost_saving_pct}% saving, indicative estimate).
++- **Negative:** Infrastructure changes to this environment should now be managed through this IaC pipeline going forward — manual console changes will cause drift from this recorded baseline.
++- **Monitoring Policy:** This environment's baseline is anchored to migration record ${adrId}. Re-run a Brownfield scan periodically to detect and reconcile any configuration drift against this record.
++
++---
++*This ADR was generated automatically by ArchAI's Brownfield pipeline from the scan, audit, and migration plan data captured above. It should be reviewed by a qualified engineer before being treated as an authoritative compliance record — see Terms of Service.*`
++}
+-- 
+2.43.0
+

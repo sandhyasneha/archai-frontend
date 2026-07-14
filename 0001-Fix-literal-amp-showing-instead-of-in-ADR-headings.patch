@@ -1,0 +1,50 @@
+From 277e6d8b83d96a053dd1b796743c4286fe172083 Mon Sep 17 00:00:00 2001
+From: ram <chan2006@gmail.com>
+Date: Wed, 8 Jul 2026 16:31:26 +0000
+Subject: [PATCH] Fix: literal &amp; showing instead of & in ADR headings
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Confirmed via a live test run — section headings '3. Import &
+Reconstruction Decision' and '5. Long-Term Consequences &
+Governance' rendered as literal '&amp;' text instead of '&'.
+
+Cause: I wrote the HTML entity &amp; into the markdown template,
+but the custom renderer outputs this as plain React text (not
+parsed HTML), so React displays the entity characters literally
+rather than converting them.
+
+Fix: use a plain & character in both headings. New ADRs generated
+after this deploy will render correctly; the one already generated
+in the test run will keep showing &amp; since it was already saved
+to the database with that text baked in.
+---
+ lib/agents/brownfield/adr.ts | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/lib/agents/brownfield/adr.ts b/lib/agents/brownfield/adr.ts
+index daa50ea..2d4cc3a 100644
+--- a/lib/agents/brownfield/adr.ts
++++ b/lib/agents/brownfield/adr.ts
+@@ -58,7 +58,7 @@ ${findingsList}
+ 
+ Overall initial compliance baseline score evaluated at **${auditResult.compliance_score}/100**. Estimated monthly cost waste identified: **$${auditResult.cost_waste_usd}/mo** *(indicative estimate — see Terms of Service).*
+ 
+-#### 3. Import &amp; Reconstruction Decision
++#### 3. Import & Reconstruction Decision
+ Migration strategy selected: **${migrationPlan.strategy}**, targeting ${migrationPlan.target_cloud.toUpperCase()} (${migrationPlan.target_region}), executed across ${migrationPlan.total_phases} phase(s) over an estimated ${migrationPlan.estimated_days} day(s):
+ 
+ ${phasesList}
+@@ -66,7 +66,7 @@ ${phasesList}
+ #### 4. Implemented Technical Corrections
+ To remediate the findings identified in Section 2, the Engineer agent generated modernised Terraform for ${migrationPlan.target_cloud.toUpperCase()} addressing every identified issue prior to this record being accepted. The full generated configuration is available in the Terraform Output step of this migration.
+ 
+-#### 5. Long-Term Consequences &amp; Governance
++#### 5. Long-Term Consequences & Governance
+ - **Positive:** Compliance rating projected to improve from ${auditResult.compliance_score}/100 toward a fully remediated baseline once deployed. Projected monthly cost: $${migrationPlan.cost_before_usd}/mo → $${migrationPlan.cost_after_usd}/mo (${migrationPlan.cost_saving_pct}% saving, indicative estimate).
+ - **Negative:** Infrastructure changes to this environment should now be managed through this IaC pipeline going forward — manual console changes will cause drift from this recorded baseline.
+ - **Monitoring Policy:** This environment's baseline is anchored to migration record ${adrId}. Re-run a Brownfield scan periodically to detect and reconcile any configuration drift against this record.
+-- 
+2.43.0
+

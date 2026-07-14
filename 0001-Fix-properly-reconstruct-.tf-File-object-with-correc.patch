@@ -1,0 +1,68 @@
+From d8375393f02501a208fbd8cc6ffd1d282fa4fb20 Mon Sep 17 00:00:00 2001
+From: ram <chan2006@gmail.com>
+Date: Wed, 8 Jul 2026 15:28:58 +0000
+Subject: [PATCH] Fix (properly): reconstruct .tf File object with correct MIME
+ type
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The previous fix (passing contentType in upload options) didn't
+actually work, and testing correctly caught it — same MIME error
+persisted after deploying it.
+
+Root cause, found by reading the actual @supabase/storage-js
+source: when the upload body is a File/Blob (which it always is
+in a browser upload flow), the client wraps it in FormData and
+appends the raw File object directly — it never reads the
+contentType option at all in that code path. The content-type
+sent over the wire comes from the File object's own internal
+.type property, which the browser already set to
+application/octet-stream before our code ever runs.
+
+Real fix: construct a new File object with the correct type baked
+in — new File([file], file.name, { type: 'text/plain' }) — before
+calling .upload(). File extends Blob, so it still hits the same
+FormData code path, but now the Blob's own .type is correct. The
+filename is preserved via the constructor's second argument, so
+the multipart upload's filename is unaffected.
+
+Verified: tsc --noEmit clean, next build succeeds. This one needs
+a live re-test against the real Supabase bucket to confirm, since
+the previous 'verified' fix passed the same local checks and still
+failed in production — local build success alone doesn't prove
+this against real Supabase upload behaviour.
+---
+ components/knowledge-base/KnowledgeBaseClient.tsx | 14 ++++++++++----
+ 1 file changed, 10 insertions(+), 4 deletions(-)
+
+diff --git a/components/knowledge-base/KnowledgeBaseClient.tsx b/components/knowledge-base/KnowledgeBaseClient.tsx
+index e3a6bd1..7160a98 100644
+--- a/components/knowledge-base/KnowledgeBaseClient.tsx
++++ b/components/knowledge-base/KnowledgeBaseClient.tsx
+@@ -114,12 +114,18 @@ export default function KnowledgeBaseClient({ user, initialFiles }: Props) {
+     setUploading(true)
+     const path = `${user.id}/${Date.now()}-${file.name}`
+ 
++    // Supabase's browser upload path reads the File object's own `.type`
++    // property directly (via FormData) rather than an options override, so
++    // for .tf files (which browsers report as application/octet-stream,
++    // since there's no registered MIME type for Terraform) we construct a
++    // fresh File with the type corrected before uploading.
++    const uploadableFile = file.name.endsWith('.tf')
++      ? new File([file], file.name, { type: 'text/plain' })
++      : file
++
+     const { error } = await supabase.storage
+       .from('knowledge-base')
+-      .upload(path, file, {
+-        upsert: false,
+-        contentType: file.name.endsWith('.tf') ? 'text/plain' : file.type || 'application/octet-stream',
+-      })
++      .upload(path, uploadableFile, { upsert: false })
+ 
+     if (error) {
+       showToast('Upload failed: ' + error.message)
+-- 
+2.43.0
+

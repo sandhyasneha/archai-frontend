@@ -12,6 +12,7 @@ const Schema = z.object({
   input_content: z.string().min(10).max(10000),
   input_type: z.enum(['terraform', 'tfstate', 'description']),
   target_cloud: z.enum(['aws', 'azure', 'gcp']),
+  migration_name: z.string().trim().min(1).max(200).nullable().optional(),
 })
 
 function encode(data: object): Uint8Array {
@@ -103,6 +104,7 @@ export async function POST(req: NextRequest) {
             input_content: input.input_content.slice(0, 5000),
             source_cloud: scanResult.source_cloud,
             target_cloud: input.target_cloud,
+            migration_name: input.migration_name ?? null,
             audit_findings: {
               findings: auditResult.findings,
               compliance_score: auditResult.compliance_score,

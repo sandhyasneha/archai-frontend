@@ -1,0 +1,586 @@
+From 84084cbedd950d32ba248b8a5821d16b98ca0c94 Mon Sep 17 00:00:00 2001
+From: ram <chan2006@gmail.com>
+Date: Tue, 7 Jul 2026 16:57:07 +0000
+Subject: [PATCH] Restructure /doc into left-nav / right-pane layout
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Replaced the single long scrolling page with anchor links with the
+same left-sidebar-click / right-pane-content pattern already used
+on the Blueprint and Brownfield detail pages — click a section in
+the left nav, only that section's content shows on the right.
+
+- components/doc/DocClient.tsx: new client component holding all
+  9 sections (Overview, Sign in & accounts, Dashboard, Greenfield,
+  Brownfield, Knowledge Base, Plans & features, Settings & account,
+  FAQ) as a tab-switched view, same content as before.
+- app/doc/page.tsx: reduced to a thin server wrapper that just
+  renders DocClient and keeps the page metadata.
+
+Verified: tsc --noEmit clean, next build succeeds (23/23 pages,
+/doc still present in route table), no lint errors on either file.
+---
+ app/doc/page.tsx             | 248 +-----------------------------
+ components/doc/DocClient.tsx | 288 +++++++++++++++++++++++++++++++++++
+ 2 files changed, 290 insertions(+), 246 deletions(-)
+ create mode 100644 components/doc/DocClient.tsx
+
+diff --git a/app/doc/page.tsx b/app/doc/page.tsx
+index 7617082..d6ea3b5 100644
+--- a/app/doc/page.tsx
++++ b/app/doc/page.tsx
+@@ -1,254 +1,10 @@
+-import Link from 'next/link'
++import DocClient from '@/components/doc/DocClient'
+ 
+ export const metadata = {
+   title: 'Documentation | ArchAI',
+   description: 'Complete guide to ArchAI — signing in, Greenfield infrastructure design, Brownfield migration, Knowledge Base, and plans.',
+ }
+ 
+-const nav = [
+-  { id: 'overview', label: 'Overview' },
+-  { id: 'account', label: 'Creating an account & signing in' },
+-  { id: 'dashboard', label: 'Dashboard' },
+-  { id: 'greenfield', label: 'Greenfield — new infrastructure' },
+-  { id: 'brownfield', label: 'Brownfield — migrate existing infrastructure' },
+-  { id: 'knowledge-base', label: 'Knowledge Base' },
+-  { id: 'plans', label: 'Plans & features' },
+-  { id: 'settings', label: 'Settings & account' },
+-  { id: 'faq', label: 'FAQ' },
+-]
+-
+-function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
+-  return (
+-    <section id={id} className="scroll-mt-20 mb-14">
+-      <h2 className="text-xl font-semibold text-black mb-4">{title}</h2>
+-      <div className="flex flex-col gap-4 text-sm leading-relaxed text-gray-700">{children}</div>
+-    </section>
+-  )
+-}
+-
+-function Step({ num, title, children }: { num: number; title: string; children: React.ReactNode }) {
+-  return (
+-    <div className="flex gap-4 border border-gray-100 rounded-xl p-5">
+-      <div className="w-7 h-7 rounded-full bg-black text-white flex items-center justify-center text-xs font-bold flex-shrink-0">{num}</div>
+-      <div>
+-        <div className="text-sm font-semibold text-black mb-1">{title}</div>
+-        <div className="text-sm text-gray-600 leading-relaxed">{children}</div>
+-      </div>
+-    </div>
+-  )
+-}
+-
+ export default function DocPage() {
+-  return (
+-    <div className="min-h-screen bg-white">
+-      <div className="border-b border-gray-100 px-7 py-4 flex items-center justify-between sticky top-0 bg-white z-10">
+-        <Link href="/" className="flex items-center gap-2.5">
+-          <div className="w-6 h-6 bg-black rounded flex items-center justify-center text-white text-xs font-bold">A</div>
+-          <span className="text-sm font-bold tracking-widest uppercase">ArchAI Docs</span>
+-        </Link>
+-        <div className="flex items-center gap-4">
+-          <Link href="/signin" className="text-xs text-gray-400 hover:text-black transition-colors">Sign in</Link>
+-          <Link href="/register" className="text-xs bg-black text-white px-3 py-1.5 rounded-md font-medium hover:opacity-85 transition-opacity">Start free</Link>
+-        </div>
+-      </div>
+-
+-      <div className="max-w-6xl mx-auto px-6 py-10 flex gap-12">
+-        {/* TOC */}
+-        <aside className="w-56 flex-shrink-0 hidden lg:block">
+-          <div className="sticky top-24 flex flex-col gap-1">
+-            {nav.map((n) => (
+-              <a key={n.id} href={`#${n.id}`} className="text-xs text-gray-500 hover:text-black py-1.5 leading-snug transition-colors">
+-                {n.label}
+-              </a>
+-            ))}
+-          </div>
+-        </aside>
+-
+-        {/* Content */}
+-        <div className="flex-1 min-w-0 max-w-2xl">
+-          <h1 className="text-3xl font-medium tracking-tight text-black mb-2">Documentation</h1>
+-          <p className="text-sm text-gray-400 mb-12">Everything you need to design, audit, and migrate cloud infrastructure with ArchAI.</p>
+-
+-          <Section id="overview" title="Overview">
+-            <p>
+-              ArchAI is an AI-powered cloud architecture platform with two core workflows:
+-            </p>
+-            <ul className="list-disc pl-5 flex flex-col gap-1.5">
+-              <li><strong>Greenfield</strong> — describe a new system in plain English and get a production-ready blueprint: architecture, Terraform code, security audit, cost estimate, and disaster recovery plan.</li>
+-              <li><strong>Brownfield</strong> — paste existing Terraform, a state file, or a description of your current setup, and get a security/cost audit, a phased migration plan, and modernised Terraform for your target cloud. (Team plan and up.)</li>
+-            </ul>
+-            <p>
+-              Both workflows run through a pipeline of specialised AI agents rather than a single prompt, so every blueprint or migration plan is reviewed and validated before you see it.
+-            </p>
+-          </Section>
+-
+-          <Section id="account" title="Creating an account & signing in">
+-            <p>
+-              ArchAI is built for organisations, not individuals. You must register with a business or organisation
+-              email address — personal domains (Gmail, Yahoo, etc.) are not accepted.
+-            </p>
+-            <div className="flex flex-col gap-3">
+-              <Step num={1} title="Create an account">
+-                Go to <Link href="/register" className="text-black underline">/register</Link>, enter your name, organisation email, organisation name, and a password (minimum 8 characters). You&apos;ll need to accept the Terms of Service and Privacy Policy to continue.
+-              </Step>
+-              <Step num={2} title="Verify your email">
+-                A verification link is sent to your organisation email. You must verify before signing in.
+-              </Step>
+-              <Step num={3} title="Sign in">
+-                Use your organisation email and password at <Link href="/signin" className="text-black underline">/signin</Link>. Forgot your password? Use the &quot;Forgot password?&quot; link to receive a reset email.
+-              </Step>
+-            </div>
+-          </Section>
+-
+-          <Section id="dashboard" title="Dashboard">
+-            <p>
+-              After signing in you land on the Dashboard, which shows:
+-            </p>
+-            <ul className="list-disc pl-5 flex flex-col gap-1.5">
+-              <li><strong>Stat cards</strong> — active projects, estimated monthly cloud spend, compliance score, blueprints generated, and migrations run this billing cycle.</li>
+-              <li><strong>Recent blueprints</strong> — your Greenfield projects, with status, cloud provider, resource count, and quick actions (view, download Terraform).</li>
+-              <li><strong>Recent brownfield migrations</strong> — your Brownfield migrations, with source/target cloud, finding count, and the same quick actions.</li>
+-              <li><strong>Activity</strong> — a running log of recent agent runs.</li>
+-            </ul>
+-            <p>Clicking any row opens that project&apos;s full detail page with its step-by-step wizard.</p>
+-          </Section>
+-
+-          <Section id="greenfield" title="Greenfield — build new infrastructure">
+-            <p>
+-              Start a Greenfield project from the Dashboard (&quot;+ New project&quot;) or the Greenfield nav item. You&apos;ll describe your system in plain English, choose a target cloud (AWS, Azure, or GCP), and click Generate blueprint.
+-            </p>
+-            <p className="text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-lg px-4 py-3">
+-              Behind the scenes, your prompt passes through four agents in sequence — <strong>Gatekeeper</strong> (validates the request is genuinely about cloud infrastructure), <strong>Architect</strong> (designs the resource plan), <strong>Engineer</strong> (writes the Terraform), and <strong>Auditor</strong> (validates syntax and security, auto-retrying on failure). You only see output the Auditor has passed.
+-            </p>
+-            <p>The resulting blueprint has five steps, navigable from the left sidebar:</p>
+-            <div className="flex flex-col gap-3">
+-              <Step num={1} title="Infra design">The architecture diagram and generated Terraform code, side by side.</Step>
+-              <Step num={2} title="Security">Findings the Auditor flagged and auto-remediated — exposed databases, wildcard IAM policies, missing encryption — each with severity and resolution.</Step>
+-              <Step num={3} title="Cost">A monthly cost estimate for your chosen provider, plus a side-by-side comparison against the other two clouds.</Step>
+-              <Step num={4} title="Disaster recovery">Recommended DR strategy (e.g. Warm Standby), RTO/RPO targets, and a failover topology diagram.</Step>
+-              <Step num={5} title="Review & export">A full summary, plus buttons to download Terraform, copy it to clipboard, or export the whole blueprint as JSON.</Step>
+-            </div>
+-          </Section>
+-
+-          <Section id="brownfield" title="Brownfield — migrate existing infrastructure">
+-            <p>
+-              Brownfield is available on the <strong>Team plan and up</strong>. Instead of designing from scratch, you
+-              feed ArchAI your existing infrastructure and it produces an audit and a modernisation plan.
+-            </p>
+-            <p><strong>Input types</strong> — you can provide your existing setup as:</p>
+-            <ul className="list-disc pl-5 flex flex-col gap-1.5">
+-              <li>Terraform (.tf) code</li>
+-              <li>A Terraform state file (.tfstate)</li>
+-              <li>A plain-English description of your current setup</li>
+-            </ul>
+-            <p>Then choose your target cloud (AWS, Azure, or GCP — it does not need to match your current one) and run the analysis.</p>
+-            <p className="text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-lg px-4 py-3">
+-              Four agents run in sequence — <strong>Scanner</strong> (maps every existing resource and its issues), <strong>Auditor</strong> (flags security exposures, deprecated resources, and cost waste, with a compliance score), <strong>Planner</strong> (builds a phased migration plan sequenced by risk), and <strong>Engineer</strong> (generates modernised, deploy-ready Terraform for your target cloud).
+-            </p>
+-            <p>Each completed migration gets its own page with five steps:</p>
+-            <div className="flex flex-col gap-3">
+-              <Step num={1} title="Overview">Resources scanned, findings, compliance score, estimated monthly saving, and migration time at a glance.</Step>
+-              <Step num={2} title="Audit findings">Every issue found, grouped by severity (critical/high/medium/low), with a specific recommendation for each.</Step>
+-              <Step num={3} title="Migration plan">A phased plan — each phase risk-scored, with an estimated hours figure and a description of what changes.</Step>
+-              <Step num={4} title="Terraform output">The modernised, ready-to-deploy Terraform for your target cloud, with copy and download options.</Step>
+-              <Step num={5} title="Review & export">Full summary and export options, same as Greenfield.</Step>
+-            </div>
+-            <p>
+-              Past migrations are listed on your Dashboard under &quot;Recent brownfield migrations&quot; — click any row to revisit it.
+-            </p>
+-          </Section>
+-
+-          <Section id="knowledge-base" title="Knowledge Base">
+-            <p>
+-              The Knowledge Base is what separates ArchAI from a generic AI wrapper. Upload your company&apos;s standards once, and every Greenfield blueprint and Brownfield migration plan follows them automatically:
+-            </p>
+-            <ul className="list-disc pl-5 flex flex-col gap-1.5">
+-              <li><strong>Naming conventions</strong> — e.g. <code className="bg-gray-100 px-1 rounded text-xs">prod-payments-vpc-use1</code> pattern enforcement.</li>
+-              <li><strong>Approved instance types &amp; budget policy</strong> — no unapproved or deprecated instances are generated.</li>
+-              <li><strong>Compliance requirements</strong> — SOC 2, GDPR, HIPAA rules relevant to your organisation.</li>
+-              <li><strong>Architecture standards</strong> — regions, tagging policy, and other conventions.</li>
+-            </ul>
+-            <p>Upload documents from the Knowledge Base page in the sidebar. Document limits scale with your plan (see below).</p>
+-          </Section>
+-
+-          <Section id="plans" title="Plans & features">
+-            <div className="overflow-x-auto -mx-1">
+-              <table className="w-full text-xs border-collapse">
+-                <thead>
+-                  <tr className="border-b border-gray-200">
+-                    <th className="text-left py-2.5 px-3 font-semibold text-gray-500">Plan</th>
+-                    <th className="text-left py-2.5 px-3 font-semibold text-gray-500">Price</th>
+-                    <th className="text-left py-2.5 px-3 font-semibold text-gray-500">Blueprints/mo</th>
+-                    <th className="text-left py-2.5 px-3 font-semibold text-gray-500">Clouds</th>
+-                    <th className="text-left py-2.5 px-3 font-semibold text-gray-500">Key features</th>
+-                  </tr>
+-                </thead>
+-                <tbody className="text-gray-700">
+-                  <tr className="border-b border-gray-50">
+-                    <td className="py-2.5 px-3 font-medium text-black">Scout</td>
+-                    <td className="py-2.5 px-3">Free</td>
+-                    <td className="py-2.5 px-3">3</td>
+-                    <td className="py-2.5 px-3">AWS only</td>
+-                    <td className="py-2.5 px-3">PDF export (watermarked), community support</td>
+-                  </tr>
+-                  <tr className="border-b border-gray-50">
+-                    <td className="py-2.5 px-3 font-medium text-black">Pro</td>
+-                    <td className="py-2.5 px-3">$49/mo</td>
+-                    <td className="py-2.5 px-3">25</td>
+-                    <td className="py-2.5 px-3">AWS + Azure + GCP</td>
+-                    <td className="py-2.5 px-3">Full Terraform + PDF export, Knowledge Base (10 docs), 48h email support</td>
+-                  </tr>
+-                  <tr className="border-b border-gray-50">
+-                    <td className="py-2.5 px-3 font-medium text-black">Team</td>
+-                    <td className="py-2.5 px-3">$199/mo</td>
+-                    <td className="py-2.5 px-3">150</td>
+-                    <td className="py-2.5 px-3">All clouds</td>
+-                    <td className="py-2.5 px-3"><strong>Brownfield migration</strong>, policy-as-code scanning, project versioning, priority Slack support</td>
+-                  </tr>
+-                  <tr>
+-                    <td className="py-2.5 px-3 font-medium text-black">Enterprise</td>
+-                    <td className="py-2.5 px-3">$1,500/mo</td>
+-                    <td className="py-2.5 px-3">Unlimited</td>
+-                    <td className="py-2.5 px-3">All clouds</td>
+-                    <td className="py-2.5 px-3">SSO/SAML, audit logs, custom compliance packs, dedicated SA</td>
+-                  </tr>
+-                </tbody>
+-              </table>
+-            </div>
+-            <p className="text-xs text-gray-400">Annual billing saves 17%. All paid plans include a 14-day free trial. Cancel anytime.</p>
+-          </Section>
+-
+-          <Section id="settings" title="Settings & account">
+-            <p>
+-              From Settings you can update your profile, manage your Knowledge Base documents, and view your current
+-              plan. Organisation admins additionally see an Admin panel with user management, usage/COGS monitoring,
+-              and plan changes for their organisation.
+-            </p>
+-          </Section>
+-
+-          <Section id="faq" title="FAQ">
+-            <div className="flex flex-col gap-4">
+-              <div>
+-                <p className="font-medium text-black mb-1">Are the cost estimates live pricing?</p>
+-                <p>No — they&apos;re indicative ballpark estimates from standard on-demand reference pricing, not real-time vendor APIs. Always verify against your cloud provider&apos;s official pricing calculator before making a financial decision. See our <Link href="/terms" className="text-black underline">Terms of Service</Link> for details.</p>
+-              </div>
+-              <div>
+-                <p className="font-medium text-black mb-1">Can I deploy the generated Terraform directly to production?</p>
+-                <p>Generated output should always be independently reviewed by a qualified engineer before deployment to any live environment — see our Terms of Service for the full disclaimer.</p>
+-              </div>
+-              <div>
+-                <p className="font-medium text-black mb-1">Does Brownfield require my target cloud to match my current one?</p>
+-                <p>No — you can migrate from any source cloud to any target cloud (AWS, Azure, or GCP).</p>
+-              </div>
+-              <div>
+-                <p className="font-medium text-black mb-1">Which plan do I need for Brownfield?</p>
+-                <p>Team plan or higher.</p>
+-              </div>
+-            </div>
+-          </Section>
+-
+-        </div>
+-      </div>
+-    </div>
+-  )
++  return <DocClient />
+ }
+diff --git a/components/doc/DocClient.tsx b/components/doc/DocClient.tsx
+new file mode 100644
+index 0000000..53ae46d
+--- /dev/null
++++ b/components/doc/DocClient.tsx
+@@ -0,0 +1,288 @@
++'use client'
++
++import { useState } from 'react'
++import Link from 'next/link'
++
++type Tab = 'overview' | 'account' | 'dashboard' | 'greenfield' | 'brownfield' | 'knowledge-base' | 'plans' | 'settings' | 'faq'
++
++const NAV: { id: Tab; label: string }[] = [
++  { id: 'overview', label: 'Overview' },
++  { id: 'account', label: 'Sign in & accounts' },
++  { id: 'dashboard', label: 'Dashboard' },
++  { id: 'greenfield', label: 'Greenfield' },
++  { id: 'brownfield', label: 'Brownfield' },
++  { id: 'knowledge-base', label: 'Knowledge Base' },
++  { id: 'plans', label: 'Plans & features' },
++  { id: 'settings', label: 'Settings & account' },
++  { id: 'faq', label: 'FAQ' },
++]
++
++function Step({ num, title, children }: { num: number; title: string; children: React.ReactNode }) {
++  return (
++    <div className="flex gap-4 border border-gray-100 rounded-xl p-5">
++      <div className="w-7 h-7 rounded-full bg-black text-white flex items-center justify-center text-xs font-bold flex-shrink-0">{num}</div>
++      <div>
++        <div className="text-sm font-semibold text-black mb-1">{title}</div>
++        <div className="text-sm text-gray-600 leading-relaxed">{children}</div>
++      </div>
++    </div>
++  )
++}
++
++export default function DocClient() {
++  const [active, setActive] = useState<Tab>('overview')
++
++  return (
++    <div className="flex h-screen w-full bg-white overflow-hidden">
++
++      {/* Sidebar */}
++      <nav className="w-[260px] flex-shrink-0 border-r border-gray-100 flex flex-col h-screen">
++        <div className="px-4 py-5 border-b border-gray-100 flex items-center gap-2.5">
++          <Link href="/" className="flex items-center gap-2.5">
++            <div className="w-6 h-6 bg-black rounded flex items-center justify-center text-white text-xs font-bold">A</div>
++            <span className="text-sm font-bold tracking-widest uppercase">ArchAI Docs</span>
++          </Link>
++        </div>
++
++        <div className="flex-1 px-2.5 py-3 flex flex-col gap-0.5 overflow-y-auto">
++          {NAV.map((n) => (
++            <button
++              key={n.id}
++              onClick={() => setActive(n.id)}
++              className={[
++                'flex items-center px-2.5 py-2 rounded-md text-sm transition-colors w-full text-left',
++                active === n.id ? 'bg-black text-white' : 'text-gray-500 hover:bg-gray-50 hover:text-black',
++              ].join(' ')}
++            >
++              {n.label}
++            </button>
++          ))}
++        </div>
++
++        <div className="px-3 py-3.5 border-t border-gray-100 flex flex-col gap-2">
++          <Link href="/signin" className="text-xs text-gray-400 hover:text-black transition-colors text-center py-1.5">Sign in</Link>
++          <Link href="/register" className="text-xs bg-black text-white px-3 py-2 rounded-md font-medium hover:opacity-85 transition-opacity text-center">Start free</Link>
++        </div>
++      </nav>
++
++      {/* Content */}
++      <div className="flex-1 overflow-y-auto p-10">
++        <div className="max-w-2xl">
++
++          {active === 'overview' && (
++            <div>
++              <h1 className="text-2xl font-semibold text-black mb-4">Overview</h1>
++              <div className="flex flex-col gap-4 text-sm leading-relaxed text-gray-700">
++                <p>ArchAI is an AI-powered cloud architecture platform with two core workflows:</p>
++                <ul className="list-disc pl-5 flex flex-col gap-1.5">
++                  <li><strong>Greenfield</strong> — describe a new system in plain English and get a production-ready blueprint: architecture, Terraform code, security audit, cost estimate, and disaster recovery plan.</li>
++                  <li><strong>Brownfield</strong> — paste existing Terraform, a state file, or a description of your current setup, and get a security/cost audit, a phased migration plan, and modernised Terraform for your target cloud. (Team plan and up.)</li>
++                </ul>
++                <p>Both workflows run through a pipeline of specialised AI agents rather than a single prompt, so every blueprint or migration plan is reviewed and validated before you see it.</p>
++              </div>
++            </div>
++          )}
++
++          {active === 'account' && (
++            <div>
++              <h1 className="text-2xl font-semibold text-black mb-4">Sign in &amp; accounts</h1>
++              <div className="flex flex-col gap-4 text-sm leading-relaxed text-gray-700">
++                <p>
++                  ArchAI is built for organisations, not individuals. You must register with a business or
++                  organisation email address — personal domains (Gmail, Yahoo, etc.) are not accepted.
++                </p>
++                <div className="flex flex-col gap-3">
++                  <Step num={1} title="Create an account">
++                    Go to <Link href="/register" className="text-black underline">/register</Link>, enter your name, organisation email, organisation name, and a password (minimum 8 characters). You&apos;ll need to accept the Terms of Service and Privacy Policy to continue.
++                  </Step>
++                  <Step num={2} title="Verify your email">
++                    A verification link is sent to your organisation email. You must verify before signing in.
++                  </Step>
++                  <Step num={3} title="Sign in">
++                    Use your organisation email and password at <Link href="/signin" className="text-black underline">/signin</Link>. Forgot your password? Use the &quot;Forgot password?&quot; link to receive a reset email.
++                  </Step>
++                </div>
++              </div>
++            </div>
++          )}
++
++          {active === 'dashboard' && (
++            <div>
++              <h1 className="text-2xl font-semibold text-black mb-4">Dashboard</h1>
++              <div className="flex flex-col gap-4 text-sm leading-relaxed text-gray-700">
++                <p>After signing in you land on the Dashboard, which shows:</p>
++                <ul className="list-disc pl-5 flex flex-col gap-1.5">
++                  <li><strong>Stat cards</strong> — active projects, estimated monthly cloud spend, compliance score, blueprints generated, and migrations run this billing cycle.</li>
++                  <li><strong>Recent blueprints</strong> — your Greenfield projects, with status, cloud provider, resource count, and quick actions (view, download Terraform).</li>
++                  <li><strong>Recent brownfield migrations</strong> — your Brownfield migrations, with source/target cloud, finding count, and the same quick actions.</li>
++                  <li><strong>Activity</strong> — a running log of recent agent runs.</li>
++                </ul>
++                <p>Clicking any row opens that project&apos;s full detail page with its step-by-step wizard.</p>
++              </div>
++            </div>
++          )}
++
++          {active === 'greenfield' && (
++            <div>
++              <h1 className="text-2xl font-semibold text-black mb-4">Greenfield — build new infrastructure</h1>
++              <div className="flex flex-col gap-4 text-sm leading-relaxed text-gray-700">
++                <p>
++                  Start a Greenfield project from the Dashboard (&quot;+ New project&quot;) or the Greenfield nav item. You&apos;ll describe your system in plain English, choose a target cloud (AWS, Azure, or GCP), and click Generate blueprint.
++                </p>
++                <p className="text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-lg px-4 py-3">
++                  Behind the scenes, your prompt passes through four agents in sequence — <strong>Gatekeeper</strong> (validates the request is genuinely about cloud infrastructure), <strong>Architect</strong> (designs the resource plan), <strong>Engineer</strong> (writes the Terraform), and <strong>Auditor</strong> (validates syntax and security, auto-retrying on failure). You only see output the Auditor has passed.
++                </p>
++                <p>The resulting blueprint has five steps, navigable from the left sidebar:</p>
++                <div className="flex flex-col gap-3">
++                  <Step num={1} title="Infra design">The architecture diagram and generated Terraform code, side by side.</Step>
++                  <Step num={2} title="Security">Findings the Auditor flagged and auto-remediated — exposed databases, wildcard IAM policies, missing encryption — each with severity and resolution.</Step>
++                  <Step num={3} title="Cost">A monthly cost estimate for your chosen provider, plus a side-by-side comparison against the other two clouds.</Step>
++                  <Step num={4} title="Disaster recovery">Recommended DR strategy (e.g. Warm Standby), RTO/RPO targets, and a failover topology diagram.</Step>
++                  <Step num={5} title="Review & export">A full summary, plus buttons to download Terraform, copy it to clipboard, or export the whole blueprint as JSON.</Step>
++                </div>
++              </div>
++            </div>
++          )}
++
++          {active === 'brownfield' && (
++            <div>
++              <h1 className="text-2xl font-semibold text-black mb-4">Brownfield — migrate existing infrastructure</h1>
++              <div className="flex flex-col gap-4 text-sm leading-relaxed text-gray-700">
++                <p>
++                  Brownfield is available on the <strong>Team plan and up</strong>. Instead of designing from scratch, you feed ArchAI your existing infrastructure and it produces an audit and a modernisation plan.
++                </p>
++                <p><strong>Input types</strong> — you can provide your existing setup as:</p>
++                <ul className="list-disc pl-5 flex flex-col gap-1.5">
++                  <li>Terraform (.tf) code</li>
++                  <li>A Terraform state file (.tfstate)</li>
++                  <li>A plain-English description of your current setup</li>
++                </ul>
++                <p>Then choose your target cloud (AWS, Azure, or GCP — it does not need to match your current one) and run the analysis.</p>
++                <p className="text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-lg px-4 py-3">
++                  Four agents run in sequence — <strong>Scanner</strong> (maps every existing resource and its issues), <strong>Auditor</strong> (flags security exposures, deprecated resources, and cost waste, with a compliance score), <strong>Planner</strong> (builds a phased migration plan sequenced by risk), and <strong>Engineer</strong> (generates modernised, deploy-ready Terraform for your target cloud).
++                </p>
++                <p>Each completed migration gets its own page with five steps:</p>
++                <div className="flex flex-col gap-3">
++                  <Step num={1} title="Overview">Resources scanned, findings, compliance score, estimated monthly saving, and migration time at a glance.</Step>
++                  <Step num={2} title="Audit findings">Every issue found, grouped by severity (critical/high/medium/low), with a specific recommendation for each.</Step>
++                  <Step num={3} title="Migration plan">A phased plan — each phase risk-scored, with an estimated hours figure and a description of what changes.</Step>
++                  <Step num={4} title="Terraform output">The modernised, ready-to-deploy Terraform for your target cloud, with copy and download options.</Step>
++                  <Step num={5} title="Review & export">Full summary and export options, same as Greenfield.</Step>
++                </div>
++                <p>Past migrations are listed on your Dashboard under &quot;Recent brownfield migrations&quot; — click any row to revisit it.</p>
++              </div>
++            </div>
++          )}
++
++          {active === 'knowledge-base' && (
++            <div>
++              <h1 className="text-2xl font-semibold text-black mb-4">Knowledge Base</h1>
++              <div className="flex flex-col gap-4 text-sm leading-relaxed text-gray-700">
++                <p>
++                  The Knowledge Base is what separates ArchAI from a generic AI wrapper. Upload your company&apos;s standards once, and every Greenfield blueprint and Brownfield migration plan follows them automatically:
++                </p>
++                <ul className="list-disc pl-5 flex flex-col gap-1.5">
++                  <li><strong>Naming conventions</strong> — e.g. <code className="bg-gray-100 px-1 rounded text-xs">prod-payments-vpc-use1</code> pattern enforcement.</li>
++                  <li><strong>Approved instance types &amp; budget policy</strong> — no unapproved or deprecated instances are generated.</li>
++                  <li><strong>Compliance requirements</strong> — SOC 2, GDPR, HIPAA rules relevant to your organisation.</li>
++                  <li><strong>Architecture standards</strong> — regions, tagging policy, and other conventions.</li>
++                </ul>
++                <p>Upload documents from the Knowledge Base page in the sidebar. Document limits scale with your plan.</p>
++              </div>
++            </div>
++          )}
++
++          {active === 'plans' && (
++            <div>
++              <h1 className="text-2xl font-semibold text-black mb-4">Plans &amp; features</h1>
++              <div className="flex flex-col gap-4">
++                <div className="overflow-x-auto -mx-1">
++                  <table className="w-full text-xs border-collapse">
++                    <thead>
++                      <tr className="border-b border-gray-200">
++                        <th className="text-left py-2.5 px-3 font-semibold text-gray-500">Plan</th>
++                        <th className="text-left py-2.5 px-3 font-semibold text-gray-500">Price</th>
++                        <th className="text-left py-2.5 px-3 font-semibold text-gray-500">Blueprints/mo</th>
++                        <th className="text-left py-2.5 px-3 font-semibold text-gray-500">Clouds</th>
++                        <th className="text-left py-2.5 px-3 font-semibold text-gray-500">Key features</th>
++                      </tr>
++                    </thead>
++                    <tbody className="text-gray-700">
++                      <tr className="border-b border-gray-50">
++                        <td className="py-2.5 px-3 font-medium text-black">Scout</td>
++                        <td className="py-2.5 px-3">Free</td>
++                        <td className="py-2.5 px-3">3</td>
++                        <td className="py-2.5 px-3">AWS only</td>
++                        <td className="py-2.5 px-3">PDF export (watermarked), community support</td>
++                      </tr>
++                      <tr className="border-b border-gray-50">
++                        <td className="py-2.5 px-3 font-medium text-black">Pro</td>
++                        <td className="py-2.5 px-3">$49/mo</td>
++                        <td className="py-2.5 px-3">25</td>
++                        <td className="py-2.5 px-3">AWS + Azure + GCP</td>
++                        <td className="py-2.5 px-3">Full Terraform + PDF export, Knowledge Base (10 docs), 48h email support</td>
++                      </tr>
++                      <tr className="border-b border-gray-50">
++                        <td className="py-2.5 px-3 font-medium text-black">Team</td>
++                        <td className="py-2.5 px-3">$199/mo</td>
++                        <td className="py-2.5 px-3">150</td>
++                        <td className="py-2.5 px-3">All clouds</td>
++                        <td className="py-2.5 px-3"><strong>Brownfield migration</strong>, policy-as-code scanning, project versioning, priority Slack support</td>
++                      </tr>
++                      <tr>
++                        <td className="py-2.5 px-3 font-medium text-black">Enterprise</td>
++                        <td className="py-2.5 px-3">$1,500/mo</td>
++                        <td className="py-2.5 px-3">Unlimited</td>
++                        <td className="py-2.5 px-3">All clouds</td>
++                        <td className="py-2.5 px-3">SSO/SAML, audit logs, custom compliance packs, dedicated SA</td>
++                      </tr>
++                    </tbody>
++                  </table>
++                </div>
++                <p className="text-xs text-gray-400">Annual billing saves 17%. All paid plans include a 14-day free trial. Cancel anytime.</p>
++              </div>
++            </div>
++          )}
++
++          {active === 'settings' && (
++            <div>
++              <h1 className="text-2xl font-semibold text-black mb-4">Settings &amp; account</h1>
++              <div className="flex flex-col gap-4 text-sm leading-relaxed text-gray-700">
++                <p>
++                  From Settings you can update your profile, manage your Knowledge Base documents, and view your
++                  current plan. Organisation admins additionally see an Admin panel with user management,
++                  usage/COGS monitoring, and plan changes for their organisation.
++                </p>
++              </div>
++            </div>
++          )}
++
++          {active === 'faq' && (
++            <div>
++              <h1 className="text-2xl font-semibold text-black mb-4">FAQ</h1>
++              <div className="flex flex-col gap-4 text-sm leading-relaxed text-gray-700">
++                <div>
++                  <p className="font-medium text-black mb-1">Are the cost estimates live pricing?</p>
++                  <p>No — they&apos;re indicative ballpark estimates from standard on-demand reference pricing, not real-time vendor APIs. Always verify against your cloud provider&apos;s official pricing calculator before making a financial decision. See our <Link href="/terms" className="text-black underline">Terms of Service</Link> for details.</p>
++                </div>
++                <div>
++                  <p className="font-medium text-black mb-1">Can I deploy the generated Terraform directly to production?</p>
++                  <p>Generated output should always be independently reviewed by a qualified engineer before deployment to any live environment — see our Terms of Service for the full disclaimer.</p>
++                </div>
++                <div>
++                  <p className="font-medium text-black mb-1">Does Brownfield require my target cloud to match my current one?</p>
++                  <p>No — you can migrate from any source cloud to any target cloud (AWS, Azure, or GCP).</p>
++                </div>
++                <div>
++                  <p className="font-medium text-black mb-1">Which plan do I need for Brownfield?</p>
++                  <p>Team plan or higher.</p>
++                </div>
++              </div>
++            </div>
++          )}
++
++        </div>
++      </div>
++    </div>
++  )
++}
+-- 
+2.43.0
+

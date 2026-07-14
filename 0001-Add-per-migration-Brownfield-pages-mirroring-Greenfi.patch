@@ -1,0 +1,835 @@
+From e4bc3c91324698a9e01ace0d50071067f95a248e Mon Sep 17 00:00:00 2001
+From: ram <chan2006@gmail.com>
+Date: Tue, 7 Jul 2026 09:35:21 +0000
+Subject: [PATCH] Add per-migration Brownfield pages, mirroring Greenfield's
+ structure
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Brownfield previously had no per-project pages or listing — every
+scan ran and displayed inline on /brownfield with no way to revisit
+past migrations, unlike Greenfield's dashboard list + /blueprint/[id]
+step wizard.
+
+- app/brownfield/[id]/page.tsx + BrownfieldDetailClient.tsx: new
+  per-migration page with a clickable left-sidebar step wizard
+  (Overview, Audit findings, Migration plan, Terraform output,
+  Review & export), fed from the existing brownfield_scans row.
+- components/dashboard/BrownfieldTable.tsx + dashboard/page.tsx:
+  new 'Recent brownfield migrations' list on the dashboard, same
+  pattern as 'Recent blueprints'. Added a Migrations run stat card.
+- api/brownfield/analyze/route.ts: enrich the audit_findings JSONB
+  column with compliance_score, severity counts, cost_waste_usd,
+  and scan summary (previously only findings[] was saved) so the
+  new detail page has full data. Uses the existing jsonb column,
+  no schema change. Old rows (plain findings array) still render
+  correctly via a normalisation helper in BrownfieldDetailClient.
+- BrownfieldClient.tsx: on scan completion, redirect to
+  /brownfield/[scan_id] instead of rendering results inline.
+
+Verified: tsc --noEmit clean, next build succeeds (20/20 pages,
+new dynamic route /brownfield/[id] confirmed in route table),
+no new lint issues (pre-existing no-html-link-for-pages convention
+used throughout this codebase, unrelated to this change).
+---
+ app/api/brownfield/analyze/route.ts           |  17 +-
+ app/brownfield/[id]/page.tsx                  |  33 ++
+ app/dashboard/page.tsx                        |  15 +-
+ components/brownfield/BrownfieldClient.tsx    |   4 +
+ .../brownfield/BrownfieldDetailClient.tsx     | 509 ++++++++++++++++++
+ components/dashboard/BrownfieldTable.tsx      | 120 +++++
+ 6 files changed, 696 insertions(+), 2 deletions(-)
+ create mode 100644 app/brownfield/[id]/page.tsx
+ create mode 100644 components/brownfield/BrownfieldDetailClient.tsx
+ create mode 100644 components/dashboard/BrownfieldTable.tsx
+
+diff --git a/app/api/brownfield/analyze/route.ts b/app/api/brownfield/analyze/route.ts
+index 0abad22..6288ed1 100644
+--- a/app/api/brownfield/analyze/route.ts
++++ b/app/api/brownfield/analyze/route.ts
+@@ -102,7 +102,22 @@ export async function POST(req: NextRequest) {
+             input_content: input.input_content.slice(0, 5000),
+             source_cloud: scanResult.source_cloud,
+             target_cloud: input.target_cloud,
+-            audit_findings: auditResult.findings,
++            audit_findings: {
++              findings: auditResult.findings,
++              compliance_score: auditResult.compliance_score,
++              critical_count: auditResult.critical_count,
++              high_count: auditResult.high_count,
++              medium_count: auditResult.medium_count,
++              low_count: auditResult.low_count,
++              cost_waste_usd: auditResult.cost_waste_usd,
++              summary: auditResult.summary,
++              scan_summary: {
++                total_resources: scanResult.total_resources,
++                source_cloud: scanResult.source_cloud,
++                region: scanResult.region,
++                resources: scanResult.resources,
++              },
++            },
+             migration_plan: migrationPlan,
+             terraform_output: terraformOutput,
+             cost_before: migrationPlan.cost_before_usd,
+diff --git a/app/brownfield/[id]/page.tsx b/app/brownfield/[id]/page.tsx
+new file mode 100644
+index 0000000..7542700
+--- /dev/null
++++ b/app/brownfield/[id]/page.tsx
+@@ -0,0 +1,33 @@
++import { redirect } from 'next/navigation'
++import { createClient } from '@/lib/supabase/server'
++import BrownfieldDetailClient from '@/components/brownfield/BrownfieldDetailClient'
++
++interface Props {
++  params: Promise<{ id: string }>
++}
++
++export default async function BrownfieldDetailPage({ params }: Props) {
++  const { id } = await params
++  const supabase = await createClient()
++  const { data: { user } } = await supabase.auth.getUser()
++  if (!user) redirect('/signin')
++
++  const { data: scan } = await supabase
++    .from('brownfield_scans')
++    .select('*')
++    .eq('id', id)
++    .eq('user_id', user.id)
++    .single()
++
++  if (!scan) redirect('/brownfield')
++
++  const displayName = user.user_metadata?.full_name || user.email?.split('@')[0] || ''
++  const initials = displayName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
++
++  return (
++    <BrownfieldDetailClient
++      scan={scan}
++      user={{ email: user.email ?? '', full_name: displayName, initials }}
++    />
++  )
++}
+diff --git a/app/dashboard/page.tsx b/app/dashboard/page.tsx
+index 6255f5a..3378099 100644
+--- a/app/dashboard/page.tsx
++++ b/app/dashboard/page.tsx
+@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
+ import { createClient } from '@/lib/supabase/server'
+ import { createClient as createServiceClient } from '@supabase/supabase-js'
+ import BlueprintTable from '@/components/dashboard/BlueprintTable'
++import BrownfieldTable from '@/components/dashboard/BrownfieldTable'
+ 
+ interface NavItemProps {
+   icon: string
+@@ -45,15 +46,18 @@ export default async function DashboardPage() {
+     { data: blueprints },
+     { data: projects },
+     { data: adminCheck },
++    { data: brownfieldScans },
+   ] = await Promise.all([
+     supabase.from('blueprints').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(20),
+     supabase.from('projects').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
+     serviceClient.from('admin_users').select('id').eq('id', user.id).single(),
++    supabase.from('brownfield_scans').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(20),
+   ])
+ 
+   const isAdmin = !!adminCheck
+   const blueprintCount = blueprints?.length ?? 0
+   const projectCount = projects?.length ?? 0
++  const brownfieldCount = brownfieldScans?.length ?? 0
+ 
+   const displayName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'there'
+   const orgName = user.user_metadata?.org_name || user.email?.split('@')[1]?.split('.')[0] || 'Your Organisation'
+@@ -64,6 +68,7 @@ export default async function DashboardPage() {
+     { label: 'Cloud spend (est.)', value: blueprintCount > 0 ? '$438' : '$0', delta: 'Monthly estimate' },
+     { label: 'Compliance score', value: blueprintCount > 0 ? '96' : '—', delta: blueprintCount > 0 ? 'SOC 2 + GDPR' : 'Run a blueprint first' },
+     { label: 'Blueprints generated', value: blueprintCount.toString(), delta: 'This billing cycle' },
++    { label: 'Migrations run', value: brownfieldCount.toString(), delta: brownfieldCount === 0 ? 'No migrations yet' : 'This billing cycle' },
+   ]
+ 
+   return (
+@@ -118,7 +123,7 @@ export default async function DashboardPage() {
+             <p className="text-sm text-gray-400">{orgName} workspace</p>
+           </div>
+ 
+-          <div className="grid grid-cols-4 gap-3.5 mb-7">
++          <div className="grid grid-cols-5 gap-3.5 mb-7">
+             {stats.map((s) => (
+               <div key={s.label} className="border border-gray-100 rounded-xl p-4">
+                 <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">{s.label}</div>
+@@ -166,6 +171,14 @@ export default async function DashboardPage() {
+               )}
+             </div>
+           </div>
++
++          <div className="border border-gray-100 rounded-xl overflow-hidden mt-5">
++            <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between">
++              <span className="text-sm font-semibold text-black">Recent brownfield migrations</span>
++              <a href="/brownfield" className="text-xs text-gray-400 hover:text-black transition-colors">+ New</a>
++            </div>
++            <BrownfieldTable scans={brownfieldScans ?? []} />
++          </div>
+         </div>
+       </div>
+     </div>
+diff --git a/components/brownfield/BrownfieldClient.tsx b/components/brownfield/BrownfieldClient.tsx
+index 00d9da5..5b58b55 100644
+--- a/components/brownfield/BrownfieldClient.tsx
++++ b/components/brownfield/BrownfieldClient.tsx
+@@ -165,6 +165,10 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
+             if (event.step === 'engineer' && event.status === 'completed') {}
+             if (event.step === 'complete' && event.payload) {
+               setTerraformOutput(event.payload.terraform_output || '')
++              if (event.payload.scan_id) {
++                window.location.href = `/brownfield/${event.payload.scan_id}`
++                return
++              }
+               setStep('results')
+             }
+           } catch { }
+diff --git a/components/brownfield/BrownfieldDetailClient.tsx b/components/brownfield/BrownfieldDetailClient.tsx
+new file mode 100644
+index 0000000..a333f09
+--- /dev/null
++++ b/components/brownfield/BrownfieldDetailClient.tsx
+@@ -0,0 +1,509 @@
++'use client'
++
++import { useState } from 'react'
++
++interface AuditFinding {
++  resource: string
++  severity: 'critical' | 'high' | 'medium' | 'low'
++  category: string
++  issue: string
++  recommendation: string
++}
++
++interface ScannedResource {
++  type: string
++  name: string
++  cloud: string
++  region: string
++  issues: string[]
++  properties: Record<string, string>
++}
++
++interface ScanSummary {
++  total_resources: number
++  source_cloud: string
++  region: string
++  resources: ScannedResource[]
++}
++
++interface RichAuditFindings {
++  findings: AuditFinding[]
++  compliance_score: number
++  critical_count: number
++  high_count: number
++  medium_count: number
++  low_count: number
++  cost_waste_usd: number
++  summary: string
++  scan_summary?: ScanSummary
++}
++
++interface MigrationStep {
++  phase: number
++  title: string
++  description: string
++  risk: string
++  estimated_hours: number
++}
++
++interface MigrationPlan {
++  strategy: string
++  target_cloud: string
++  target_region: string
++  phases: MigrationStep[]
++  total_phases: number
++  estimated_days: number
++  cost_before_usd: number
++  cost_after_usd: number
++  cost_saving_usd: number
++  cost_saving_pct: number
++}
++
++interface BrownfieldScan {
++  id: string
++  input_type: string
++  input_content: string
++  source_cloud: string
++  target_cloud: string
++  audit_findings: AuditFinding[] | RichAuditFindings
++  migration_plan: MigrationPlan
++  terraform_output: string
++  cost_before: number
++  cost_after: number
++  status: string
++  created_at: string
++}
++
++interface Props {
++  scan: BrownfieldScan
++  user: { email: string; full_name: string; initials: string }
++}
++
++type Step = 'overview' | 'audit' | 'plan' | 'terraform' | 'export'
++
++const STEPS = [
++  { id: 'overview' as Step, label: 'Overview', icon: '◎' },
++  { id: 'audit' as Step, label: 'Audit findings', icon: '🛡' },
++  { id: 'plan' as Step, label: 'Migration plan', icon: '🔄' },
++  { id: 'terraform' as Step, label: 'Terraform output', icon: '⌂' },
++  { id: 'export' as Step, label: 'Review & export', icon: '🚀' },
++]
++
++const SEV_STYLES: Record<string, string> = {
++  critical: 'bg-red-50 text-red-700',
++  high: 'bg-orange-50 text-orange-700',
++  medium: 'bg-yellow-50 text-yellow-700',
++  low: 'bg-gray-100 text-gray-600',
++}
++
++const RISK_STYLES: Record<string, string> = {
++  low: 'bg-green-50 text-green-700',
++  medium: 'bg-yellow-50 text-yellow-700',
++  high: 'bg-red-50 text-red-700',
++}
++
++// Normalises audit_findings so both the old (plain array) and new
++// (rich object) shapes stored in the DB render the same way.
++function normaliseAudit(raw: AuditFinding[] | RichAuditFindings): RichAuditFindings {
++  if (Array.isArray(raw)) {
++    const count = (sev: string) => raw.filter(f => f.severity === sev).length
++    return {
++      findings: raw,
++      compliance_score: 0,
++      critical_count: count('critical'),
++      high_count: count('high'),
++      medium_count: count('medium'),
++      low_count: count('low'),
++      cost_waste_usd: 0,
++      summary: '',
++      scan_summary: undefined,
++    }
++  }
++  return raw
++}
++
++export default function BrownfieldDetailClient({ scan, user }: Props) {
++  const [activeStep, setActiveStep] = useState<Step>('overview')
++  const [copied, setCopied] = useState(false)
++
++  const audit = normaliseAudit(scan.audit_findings)
++  const plan = scan.migration_plan
++  const scanSummary = audit.scan_summary
++
++  function downloadTerraform() {
++    const blob = new Blob([scan.terraform_output || ''], { type: 'text/plain' })
++    const url = URL.createObjectURL(blob)
++    const a = document.createElement('a')
++    a.href = url
++    a.download = `archai-migration-${scan.id.slice(0, 8)}.tf`
++    document.body.appendChild(a)
++    a.click()
++    document.body.removeChild(a)
++    URL.revokeObjectURL(url)
++  }
++
++  function downloadJSON() {
++    const blob = new Blob([JSON.stringify(scan, null, 2)], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const a = document.createElement('a')
++    a.href = url
++    a.download = `archai-migration-${scan.id.slice(0, 8)}.json`
++    document.body.appendChild(a)
++    a.click()
++    document.body.removeChild(a)
++    URL.revokeObjectURL(url)
++  }
++
++  function copyTerraform() {
++    navigator.clipboard.writeText(scan.terraform_output || '')
++    setCopied(true)
++    setTimeout(() => setCopied(false), 2000)
++  }
++
++  return (
++    <div className="flex h-screen w-full bg-white overflow-hidden">
++
++      {/* Sidebar */}
++      <nav className="w-[234px] flex-shrink-0 border-r border-gray-100 flex flex-col h-screen">
++        <div className="px-4 py-5 border-b border-gray-100 flex items-center gap-2.5">
++          <div className="w-6 h-6 bg-black rounded flex items-center justify-center text-white text-xs font-bold">A</div>
++          <span className="text-sm font-bold tracking-widest uppercase">ArchAI</span>
++        </div>
++
++        <div className="flex-1 px-2.5 py-3 flex flex-col gap-0.5 overflow-y-auto">
++          <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-2 pt-2 pb-1">Workspace</p>
++          <a href="/dashboard" className="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-gray-500 hover:bg-gray-50 hover:text-black transition-colors">
++            <span className="w-4">▦</span> Dashboard
++          </a>
++          <a href="/project/new" className="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-gray-500 hover:bg-gray-50 hover:text-black transition-colors">
++            <span className="w-4">⌂</span> Greenfield
++          </a>
++          <a href="/brownfield" className="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-gray-500 hover:bg-gray-50 hover:text-black transition-colors">
++            <span className="w-4">⬡</span> Brownfield
++          </a>
++
++          {/* Migration steps */}
++          <div className="mt-3 mb-1">
++            <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-2 pb-2">Migration steps</p>
++            <div className="flex flex-col gap-0.5">
++              {STEPS.map((step, i) => (
++                <button
++                  key={step.id}
++                  onClick={() => setActiveStep(step.id)}
++                  className={[
++                    'flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm transition-colors w-full text-left',
++                    activeStep === step.id ? 'bg-black text-white' : 'text-gray-500 hover:bg-gray-50 hover:text-black',
++                  ].join(' ')}
++                >
++                  <div className={[
++                    'w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0',
++                    activeStep === step.id ? 'bg-white text-black' : 'bg-green-500 text-white',
++                  ].join(' ')}>
++                    {activeStep === step.id ? (i + 1) : '✓'}
++                  </div>
++                  {step.label}
++                </button>
++              ))}
++            </div>
++          </div>
++
++          <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-2 pt-4 pb-1">Configuration</p>
++          <a href="/knowledge-base" className="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-gray-500 hover:bg-gray-50 hover:text-black transition-colors">
++            <span className="w-4">⊟</span> Knowledge base
++          </a>
++          <a href="/settings" className="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-gray-500 hover:bg-gray-50 hover:text-black transition-colors">
++            <span className="w-4">⚙</span> Settings
++          </a>
++        </div>
++
++        <div className="px-3 py-3.5 border-t border-gray-100">
++          <div className="flex items-center gap-2.5">
++            <div className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-semibold flex-shrink-0">
++              {user.initials}
++            </div>
++            <div className="flex-1 min-w-0">
++              <div className="text-xs font-medium text-black truncate">{user.full_name}</div>
++              <div className="text-[11px] text-gray-400 truncate">{user.email}</div>
++            </div>
++          </div>
++        </div>
++      </nav>
++
++      {/* Main content */}
++      <div className="flex-1 flex flex-col min-w-0">
++        <div className="border-b border-gray-100 px-7 py-3 flex items-center justify-between flex-shrink-0">
++          <div className="text-xs text-gray-400">
++            <a href="/dashboard" className="hover:text-black transition-colors">Dashboard</a>
++            {' / '}
++            <a href="/brownfield" className="hover:text-black transition-colors">Brownfield</a>
++            {' / '}
++            <span className="text-black font-medium">Migration {scan.id.slice(0, 8)}</span>
++          </div>
++          <div className="flex items-center gap-3">
++            <span className="px-2 py-0.5 bg-green-50 text-green-700 rounded-full text-[10px] font-semibold uppercase">
++              {scan.status}
++            </span>
++            <span className="text-xs text-gray-400">
++              {scan.source_cloud?.toUpperCase()} → {scan.target_cloud?.toUpperCase()} · {new Date(scan.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
++            </span>
++          </div>
++        </div>
++
++        <div className="flex-1 overflow-y-auto p-7">
++
++          {/* STEP 1 — Overview */}
++          {activeStep === 'overview' && (
++            <div className="max-w-5xl">
++              <h2 className="text-base font-semibold text-black mb-1">Migration overview</h2>
++              <p className="text-sm text-gray-400 mb-5">
++                Summary of the discovery scan and modernisation plan for this migration.
++              </p>
++
++              <div className="grid grid-cols-5 gap-3 mb-6">
++                {[
++                  { label: 'Resources scanned', value: (scanSummary?.total_resources ?? audit.findings.length).toString() },
++                  { label: 'Findings', value: audit.findings.length.toString() },
++                  { label: 'Compliance score', value: audit.compliance_score ? `${audit.compliance_score}/100` : '—' },
++                  { label: 'Est. saving', value: `$${plan?.cost_saving_usd ?? 0}/mo` },
++                  { label: 'Migration time', value: `${plan?.estimated_days ?? '—'} days` },
++                ].map(s => (
++                  <div key={s.label} className="border border-gray-100 rounded-xl p-4 text-center">
++                    <div className="text-xl font-bold text-black mb-1">{s.value}</div>
++                    <div className="text-[11px] text-gray-400">{s.label}</div>
++                  </div>
++                ))}
++              </div>
++
++              <div className="grid grid-cols-2 gap-4 mb-6">
++                <div className="border border-gray-100 rounded-lg p-4">
++                  <div className="text-[11px] text-gray-400 mb-1">Source</div>
++                  <div className="text-sm font-medium text-black uppercase">{scan.source_cloud} · {scanSummary?.region ?? '—'}</div>
++                </div>
++                <div className="border border-gray-100 rounded-lg p-4">
++                  <div className="text-[11px] text-gray-400 mb-1">Target</div>
++                  <div className="text-sm font-medium text-black uppercase">{plan?.target_cloud ?? scan.target_cloud} · {plan?.target_region ?? '—'}</div>
++                </div>
++              </div>
++
++              {audit.summary && (
++                <div className="flex items-start gap-2.5 px-4 py-3 bg-amber-50 border border-amber-100 rounded-lg mb-2">
++                  <span className="text-amber-500 text-sm flex-shrink-0">ⓘ</span>
++                  <p className="text-xs text-amber-700 leading-relaxed">{audit.summary}</p>
++                </div>
++              )}
++
++              {scanSummary?.resources && scanSummary.resources.length > 0 && (
++                <div className="border border-gray-100 rounded-xl overflow-hidden mt-5">
++                  <div className="px-5 py-3 border-b border-gray-100 bg-gray-50">
++                    <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Discovered resources</span>
++                  </div>
++                  <table className="w-full text-xs">
++                    <thead>
++                      <tr className="border-b border-gray-100">
++                        <th className="text-left px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Resource</th>
++                        <th className="text-left px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Type</th>
++                        <th className="text-left px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Issues</th>
++                      </tr>
++                    </thead>
++                    <tbody>
++                      {scanSummary.resources.map((r, i) => (
++                        <tr key={i} className="border-b border-gray-50 last:border-0">
++                          <td className="px-5 py-3 font-mono text-gray-600">{r.name}</td>
++                          <td className="px-5 py-3 text-gray-500">{r.type}</td>
++                          <td className="px-5 py-3 text-gray-500">{r.issues?.join(', ') || '—'}</td>
++                        </tr>
++                      ))}
++                    </tbody>
++                  </table>
++                </div>
++              )}
++            </div>
++          )}
++
++          {/* STEP 2 — Audit findings */}
++          {activeStep === 'audit' && (
++            <div className="max-w-5xl">
++              <h2 className="text-base font-semibold text-black mb-1">Audit findings</h2>
++              <p className="text-sm text-gray-400 mb-5">
++                Security, compliance, and cost issues identified during discovery.
++              </p>
++
++              <div className="flex gap-3 mb-5 flex-wrap">
++                {[
++                  { label: 'Critical', count: audit.critical_count, color: 'bg-red-50 text-red-700' },
++                  { label: 'High', count: audit.high_count, color: 'bg-orange-50 text-orange-700' },
++                  { label: 'Medium', count: audit.medium_count, color: 'bg-yellow-50 text-yellow-700' },
++                  { label: 'Low', count: audit.low_count, color: 'bg-gray-100 text-gray-600' },
++                ].map(s => (
++                  <div key={s.label} className={`px-4 py-2.5 rounded-lg ${s.color}`}>
++                    <div className="text-xl font-bold">{s.count}</div>
++                    <div className="text-[11px] font-medium">{s.label}</div>
++                  </div>
++                ))}
++                {audit.cost_waste_usd > 0 && (
++                  <div className="ml-auto flex items-center gap-2 text-sm text-gray-400">
++                    Cost waste identified: <span className="font-semibold text-black">${audit.cost_waste_usd}/mo</span>
++                  </div>
++                )}
++              </div>
++
++              <div className="border border-gray-100 rounded-xl overflow-hidden">
++                <table className="w-full text-xs">
++                  <thead>
++                    <tr className="border-b border-gray-100 bg-gray-50">
++                      <th className="text-left px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Resource</th>
++                      <th className="text-left px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Severity</th>
++                      <th className="text-left px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Issue</th>
++                      <th className="text-left px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Recommendation</th>
++                    </tr>
++                  </thead>
++                  <tbody>
++                    {audit.findings.map((f, i) => (
++                      <tr key={i} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
++                        <td className="px-5 py-3 font-mono text-gray-600">{f.resource}</td>
++                        <td className="px-5 py-3">
++                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${SEV_STYLES[f.severity]}`}>{f.severity}</span>
++                        </td>
++                        <td className="px-5 py-3 text-gray-600">{f.issue}</td>
++                        <td className="px-5 py-3 text-gray-500">{f.recommendation}</td>
++                      </tr>
++                    ))}
++                  </tbody>
++                </table>
++              </div>
++            </div>
++          )}
++
++          {/* STEP 3 — Migration plan */}
++          {activeStep === 'plan' && plan && (
++            <div className="max-w-5xl">
++              <h2 className="text-base font-semibold text-black mb-1">Migration plan</h2>
++              <p className="text-sm text-gray-400 mb-5">
++                Phased approach to move this workload to {plan.target_cloud?.toUpperCase()}.
++              </p>
++
++              <div className="grid grid-cols-3 gap-4 mb-6">
++                <div className="border border-gray-100 rounded-xl p-4">
++                  <div className="text-[11px] text-gray-400 mb-1">Strategy</div>
++                  <div className="text-sm font-semibold text-black">{plan.strategy}</div>
++                </div>
++                <div className="border border-gray-100 rounded-xl p-4">
++                  <div className="text-[11px] text-gray-400 mb-1">Cost before → after</div>
++                  <div className="text-sm font-semibold text-black">
++                    ${plan.cost_before_usd}/mo → ${plan.cost_after_usd}/mo
++                    <span className="ml-2 text-green-600">(-{plan.cost_saving_pct}%)</span>
++                  </div>
++                </div>
++                <div className="border border-gray-100 rounded-xl p-4">
++                  <div className="text-[11px] text-gray-400 mb-1">Target</div>
++                  <div className="text-sm font-semibold text-black uppercase">{plan.target_cloud} · {plan.target_region}</div>
++                </div>
++              </div>
++
++              <div className="flex flex-col gap-3">
++                {plan.phases?.map((phase, i) => (
++                  <div key={i} className="border border-gray-100 rounded-xl p-5 flex gap-4">
++                    <div className="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center text-sm font-bold flex-shrink-0">{phase.phase}</div>
++                    <div className="flex-1">
++                      <div className="flex items-center gap-2 mb-1">
++                        <span className="text-sm font-semibold text-black">{phase.title}</span>
++                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${RISK_STYLES[phase.risk]}`}>{phase.risk} risk</span>
++                        <span className="text-[11px] text-gray-400 ml-auto">{phase.estimated_hours}h estimated</span>
++                      </div>
++                      <p className="text-xs text-gray-500">{phase.description}</p>
++                    </div>
++                  </div>
++                ))}
++              </div>
++            </div>
++          )}
++
++          {/* STEP 4 — Terraform output */}
++          {activeStep === 'terraform' && (
++            <div className="max-w-5xl">
++              <h2 className="text-base font-semibold text-black mb-1">Terraform output</h2>
++              <p className="text-sm text-gray-400 mb-5">
++                Modernised infrastructure-as-code, ready to review and run.
++              </p>
++
++              <div className="border border-gray-100 rounded-xl overflow-hidden">
++                <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
++                  <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
++                    Modernised Terraform — {(plan?.target_cloud ?? scan.target_cloud)?.toUpperCase()} · {plan?.target_region ?? ''}
++                  </span>
++                  <div className="flex gap-2">
++                    <button onClick={copyTerraform} className="text-xs text-gray-400 hover:text-black transition-colors px-2 py-1 border border-gray-200 rounded">
++                      {copied ? '✓ Copied' : 'Copy'}
++                    </button>
++                    <button onClick={downloadTerraform} className="text-xs bg-black text-white px-3 py-1 rounded hover:opacity-85 transition-opacity">
++                      ↓ Download .tf
++                    </button>
++                  </div>
++                </div>
++                <div className="p-5 bg-gray-50 overflow-auto max-h-[600px]">
++                  <pre className="text-[11px] text-gray-600 font-mono leading-relaxed whitespace-pre-wrap">{scan.terraform_output}</pre>
++                </div>
++              </div>
++            </div>
++          )}
++
++          {/* STEP 5 — Review & export */}
++          {activeStep === 'export' && (
++            <div className="max-w-4xl">
++              <h2 className="text-base font-semibold text-black mb-1">Review &amp; export</h2>
++              <p className="text-sm text-gray-400 mb-6">
++                Your complete migration blueprint. Download and hand off to your engineering team.
++              </p>
++
++              <div className="border border-gray-100 rounded-lg overflow-hidden mb-6">
++                {[
++                  { key: 'Source → Target', value: `${scan.source_cloud?.toUpperCase()} → ${(plan?.target_cloud ?? scan.target_cloud)?.toUpperCase()}` },
++                  { key: 'Resources scanned', value: (scanSummary?.total_resources ?? audit.findings.length).toString() },
++                  { key: 'Findings', value: `${audit.findings.length} findings — ${audit.critical_count} critical, ${audit.high_count} high` },
++                  { key: 'Compliance score', value: audit.compliance_score ? `${audit.compliance_score}/100` : 'Not available for this scan' },
++                  { key: 'Migration strategy', value: plan?.strategy ?? '—' },
++                  { key: 'Monthly cost', value: plan ? `$${plan.cost_before_usd}/mo → $${plan.cost_after_usd}/mo (-${plan.cost_saving_pct}%)` : '—' },
++                  { key: 'Estimated timeline', value: plan ? `${plan.estimated_days} days · ${plan.total_phases} phases` : '—' },
++                  { key: 'Generated', value: new Date(scan.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) },
++                ].map((row, i) => (
++                  <div key={i} className="flex px-5 py-3.5 border-b border-gray-50 last:border-0">
++                    <span className="text-xs text-gray-500 w-44 flex-shrink-0">{row.key}</span>
++                    <span className="text-sm font-medium text-black">{row.value}</span>
++                  </div>
++                ))}
++              </div>
++
++              <div className="grid grid-cols-3 gap-3">
++                <button
++                  onClick={downloadTerraform}
++                  className="flex flex-col items-start p-5 border-2 border-black bg-black text-white rounded-lg hover:opacity-85 transition-opacity text-left"
++                >
++                  <span className="text-xl mb-2">↓</span>
++                  <span className="text-sm font-medium mb-1">Download Terraform</span>
++                  <span className="text-xs opacity-60">Full .tf package, ready to run</span>
++                </button>
++                <button
++                  onClick={copyTerraform}
++                  className="flex flex-col items-start p-5 border border-gray-100 rounded-lg hover:border-black transition-colors text-left"
++                >
++                  <span className="text-xl mb-2 text-gray-400">⊙</span>
++                  <span className="text-sm font-medium text-black mb-1">{copied ? 'Copied!' : 'Copy Terraform'}</span>
++                  <span className="text-xs text-gray-400">Copy to clipboard</span>
++                </button>
++                <button
++                  onClick={downloadJSON}
++                  className="flex flex-col items-start p-5 border border-gray-100 rounded-lg hover:border-black transition-colors text-left"
++                >
++                  <span className="text-xl mb-2 text-gray-400">▣</span>
++                  <span className="text-sm font-medium text-black mb-1">Export JSON</span>
++                  <span className="text-xs text-gray-400">Full migration record as JSON</span>
++                </button>
++              </div>
++            </div>
++          )}
++
++        </div>
++      </div>
++    </div>
++  )
++}
+diff --git a/components/dashboard/BrownfieldTable.tsx b/components/dashboard/BrownfieldTable.tsx
+new file mode 100644
+index 0000000..c245b56
+--- /dev/null
++++ b/components/dashboard/BrownfieldTable.tsx
+@@ -0,0 +1,120 @@
++'use client'
++
++interface AuditFindingsShape {
++  findings?: unknown[]
++}
++
++interface BrownfieldScan {
++  id: string
++  source_cloud: string
++  target_cloud: string
++  status: string
++  audit_findings: unknown[] | AuditFindingsShape
++  terraform_output: string
++  created_at: string
++}
++
++interface Props {
++  scans: BrownfieldScan[]
++}
++
++function findingsCount(raw: unknown[] | AuditFindingsShape): number {
++  if (Array.isArray(raw)) return raw.length
++  return raw?.findings?.length ?? 0
++}
++
++export default function BrownfieldTable({ scans }: Props) {
++  if (scans.length === 0) {
++    return (
++      <div className="flex flex-col items-center justify-center py-16 text-center px-8">
++        <div className="text-3xl text-gray-200 mb-4">⬡</div>
++        <div className="text-sm font-medium text-black mb-1">No migrations yet</div>
++        <p className="text-xs text-gray-400 max-w-xs mb-5">
++          Run your first Brownfield migration to scan and modernise existing infrastructure.
++        </p>
++        <a href="/brownfield" className="px-4 py-2 bg-black text-white rounded-md text-xs font-medium hover:opacity-85 transition-opacity">
++          Start a migration
++        </a>
++      </div>
++    )
++  }
++
++  return (
++    <table className="w-full">
++      <thead>
++        <tr className="border-b border-gray-50">
++          <th className="text-left px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
++            Migration
++          </th>
++          <th className="text-left px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
++            Status
++          </th>
++          <th className="text-left px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
++            Created
++          </th>
++          <th className="text-left px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
++            Actions
++          </th>
++        </tr>
++      </thead>
++      <tbody>
++        {scans.map((s) => (
++          <tr
++            key={s.id}
++            className="border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors cursor-pointer"
++            onClick={() => window.location.href = `/brownfield/${s.id}`}
++          >
++            <td className="px-5 py-3.5">
++              <div className="text-xs font-medium text-black truncate max-w-xs">
++                {s.source_cloud?.toUpperCase()} → {s.target_cloud?.toUpperCase()} migration
++              </div>
++              <div className="text-[11px] text-gray-400 mt-0.5">
++                {findingsCount(s.audit_findings)} findings
++              </div>
++            </td>
++            <td className="px-5 py-3.5">
++              <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${
++                s.status === 'complete'
++                  ? 'bg-green-50 text-green-700'
++                  : 'bg-gray-100 text-gray-500'
++              }`}>
++                {s.status ?? 'Draft'}
++              </span>
++            </td>
++            <td className="px-5 py-3.5 text-[11px] text-gray-400">
++              {new Date(s.created_at).toLocaleDateString('en-GB', {
++                day: 'numeric', month: 'short', year: 'numeric'
++              })}
++            </td>
++            <td className="px-5 py-3.5">
++              <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
++                <button
++                  onClick={() => window.location.href = `/brownfield/${s.id}`}
++                  className="text-[11px] text-gray-400 hover:text-black transition-colors px-2 py-1 rounded hover:bg-gray-100"
++                >
++                  View
++                </button>
++                <button
++                  onClick={() => {
++                    const blob = new Blob([s.terraform_output || ''], { type: 'text/plain' })
++                    const url = URL.createObjectURL(blob)
++                    const a = document.createElement('a')
++                    a.href = url
++                    a.download = `archai-migration-${s.id.slice(0, 8)}.tf`
++                    document.body.appendChild(a)
++                    a.click()
++                    document.body.removeChild(a)
++                    URL.revokeObjectURL(url)
++                  }}
++                  className="text-[11px] text-gray-400 hover:text-black transition-colors px-2 py-1 rounded hover:bg-gray-100"
++                >
++                  ↓ .tf
++                </button>
++              </div>
++            </td>
++          </tr>
++        ))}
++      </tbody>
++    </table>
++  )
++}
+-- 
+2.43.0
+

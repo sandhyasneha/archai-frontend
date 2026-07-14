@@ -1,0 +1,580 @@
+From c6165fa399c40a5616e357d53c7d5613865d8d8f Mon Sep 17 00:00:00 2001
+From: ram <chan2006@gmail.com>
+Date: Wed, 8 Jul 2026 17:47:10 +0000
+Subject: [PATCH] Add API key infrastructure + Brownfield auto-discover ingest
+ endpoint
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+First half of Brownfield auto-discover: lets a future/companion CLI
+authenticate to ArchAI without a browser session, and submit
+pre-structured resource data (from real cloud API calls) instead of
+pasted Terraform.
+
+- lib/api-keys.ts: generateApiKey()/hashApiKey(). Keys are
+  archai_live_<48 hex chars>; only a SHA-256 hash is ever stored,
+  the full key is returned once at creation and never retrievable
+  again — standard practice for API keys.
+- app/api/api-keys/route.ts + [id]/route.ts: create/list/revoke
+  keys for the logged-in user. Revoke is a soft-delete (revoked_at
+  timestamp) so usage history isn't lost.
+- components/settings/SettingsClient.tsx: new 'API Keys' tab —
+  generate a key (shown once, with a copy button and an explicit
+  'won't be shown again' warning), list existing keys with
+  prefix/created/last-used, revoke button. Fixed a set-state-in-effect
+  lint issue by using the standard async-IIFE-in-effect pattern
+  rather than calling a named async function directly from the
+  effect body.
+- app/api/brownfield/ingest/route.ts: new endpoint, authenticated
+  via 'Authorization: Bearer <api_key>' instead of a session
+  cookie. Accepts a pre-built ScanResult (same shape the Scanner
+  agent already outputs from parsing pasted text) and target_cloud,
+  skips the Scanner step entirely, then runs the exact same
+  Auditor -> Planner -> Engineer -> ADR generation -> save pipeline
+  as the pasted-input flow. Same Team+ plan gate applied.
+- lib/supabase/middleware.ts: added the ingest route to the public
+  allowlist, since it does its own API-key auth and would otherwise
+  get redirected to /signin by the session-based middleware (which
+  would break a CLI's POST request).
+
+Needs a new Supabase table before this works — SQL provided
+separately (create_api_keys_table.sql), same pattern as the earlier
+RLS fix: run once in the SQL editor, no code deploy needed for it.
+
+Verified: tsc --noEmit clean, next build succeeds (26/26 pages,
+all 3 new API routes confirmed in route table), no new lint errors
+beyond the one pre-existing no-html-link-for-pages issue already
+present in this file.
+
+Note: this is backend infrastructure only. The actual CLI tool and
+the Brownfield UI's 'Auto-discover' option are separate, following
+commits.
+---
+ app/api/api-keys/[id]/route.ts         |  21 +++
+ app/api/api-keys/route.ts              |  51 +++++++
+ app/api/brownfield/ingest/route.ts     | 179 +++++++++++++++++++++++++
+ components/settings/SettingsClient.tsx | 166 ++++++++++++++++++++++-
+ lib/api-keys.ts                        |  15 +++
+ lib/supabase/middleware.ts             |   3 +-
+ 6 files changed, 432 insertions(+), 3 deletions(-)
+ create mode 100644 app/api/api-keys/[id]/route.ts
+ create mode 100644 app/api/api-keys/route.ts
+ create mode 100644 app/api/brownfield/ingest/route.ts
+ create mode 100644 lib/api-keys.ts
+
+diff --git a/app/api/api-keys/[id]/route.ts b/app/api/api-keys/[id]/route.ts
+new file mode 100644
+index 0000000..222ecae
+--- /dev/null
++++ b/app/api/api-keys/[id]/route.ts
+@@ -0,0 +1,21 @@
++import { createClient } from '@/lib/supabase/server'
++
++interface Props {
++  params: Promise<{ id: string }>
++}
++
++export async function DELETE(req: Request, { params }: Props) {
++  const { id } = await params
++  const supabase = await createClient()
++  const { data: { user } } = await supabase.auth.getUser()
++  if (!user) return Response.json({ error: 'Unauthorised' }, { status: 401 })
++
++  const { error } = await supabase
++    .from('api_keys')
++    .update({ revoked_at: new Date().toISOString() })
++    .eq('id', id)
++    .eq('user_id', user.id)
++
++  if (error) return Response.json({ error: error.message }, { status: 500 })
++  return Response.json({ revoked: true })
++}
+diff --git a/app/api/api-keys/route.ts b/app/api/api-keys/route.ts
+new file mode 100644
+index 0000000..78dc5c0
+--- /dev/null
++++ b/app/api/api-keys/route.ts
+@@ -0,0 +1,51 @@
++import { NextRequest } from 'next/server'
++import { createClient } from '@/lib/supabase/server'
++import { generateApiKey } from '@/lib/api-keys'
++import { z } from 'zod'
++
++const CreateSchema = z.object({
++  name: z.string().min(1).max(100),
++})
++
++export async function GET() {
++  const supabase = await createClient()
++  const { data: { user } } = await supabase.auth.getUser()
++  if (!user) return Response.json({ error: 'Unauthorised' }, { status: 401 })
++
++  const { data, error } = await supabase
++    .from('api_keys')
++    .select('id, name, key_prefix, created_at, last_used_at, revoked_at')
++    .eq('user_id', user.id)
++    .order('created_at', { ascending: false })
++
++  if (error) return Response.json({ error: error.message }, { status: 500 })
++  return Response.json({ keys: data })
++}
++
++export async function POST(req: NextRequest) {
++  const supabase = await createClient()
++  const { data: { user } } = await supabase.auth.getUser()
++  if (!user) return Response.json({ error: 'Unauthorised' }, { status: 401 })
++
++  const body = await req.json()
++  const parsed = CreateSchema.safeParse(body)
++  if (!parsed.success) return Response.json({ error: 'Invalid input' }, { status: 400 })
++
++  const { fullKey, keyPrefix, keyHash } = generateApiKey()
++
++  const { data, error } = await supabase
++    .from('api_keys')
++    .insert({
++      user_id: user.id,
++      name: parsed.data.name,
++      key_prefix: keyPrefix,
++      key_hash: keyHash,
++    })
++    .select('id, name, key_prefix, created_at')
++    .single()
++
++  if (error) return Response.json({ error: error.message }, { status: 500 })
++
++  // The full key is only ever returned once, at creation time.
++  return Response.json({ key: data, full_key: fullKey })
++}
+diff --git a/app/api/brownfield/ingest/route.ts b/app/api/brownfield/ingest/route.ts
+new file mode 100644
+index 0000000..40de775
+--- /dev/null
++++ b/app/api/brownfield/ingest/route.ts
+@@ -0,0 +1,179 @@
++import { NextRequest } from 'next/server'
++import { createClient as createServiceClient } from '@supabase/supabase-js'
++import { hashApiKey } from '@/lib/api-keys'
++import { runBrownfieldAuditor } from '@/lib/agents/brownfield/auditor'
++import { runPlanner } from '@/lib/agents/brownfield/planner'
++import { runBrownfieldEngineer } from '@/lib/agents/brownfield/engineer'
++import { generateADR } from '@/lib/agents/brownfield/adr'
++import { ScanResult } from '@/lib/agents/brownfield/scanner'
++import { z } from 'zod'
++
++const ScannedResourceSchema = z.object({
++  type: z.string(),
++  name: z.string(),
++  cloud: z.string(),
++  region: z.string(),
++  issues: z.array(z.string()),
++  properties: z.record(z.string(), z.string()),
++})
++
++const Schema = z.object({
++  target_cloud: z.enum(['aws', 'azure', 'gcp']),
++  scan_result: z.object({
++    source_cloud: z.string(),
++    region: z.string(),
++    resources: z.array(ScannedResourceSchema),
++    total_resources: z.number(),
++    input_type: z.literal('auto_discover'),
++  }),
++})
++
++async function resolveUserFromApiKey(
++  // eslint-disable-next-line @typescript-eslint/no-explicit-any
++  serviceClient: any,
++  authHeader: string | null
++): Promise<string | null> {
++  if (!authHeader?.startsWith('Bearer ')) return null
++  const key = authHeader.slice('Bearer '.length).trim()
++  const keyHash = hashApiKey(key)
++
++  const { data } = await serviceClient
++    .from('api_keys')
++    .select('id, user_id, revoked_at')
++    .eq('key_hash', keyHash)
++    .is('revoked_at', null)
++    .single()
++
++  if (!data) return null
++
++  await serviceClient
++    .from('api_keys')
++    .update({ last_used_at: new Date().toISOString() })
++    .eq('id', data.id)
++
++  return data.user_id as string
++}
++
++export async function POST(req: NextRequest) {
++  const serviceClient = createServiceClient(
++    process.env.NEXT_PUBLIC_SUPABASE_URL!,
++    process.env.SUPABASE_SERVICE_ROLE_KEY!
++  )
++
++  const userId = await resolveUserFromApiKey(serviceClient, req.headers.get('authorization'))
++  if (!userId) {
++    return Response.json({ error: 'Invalid or revoked API key' }, { status: 401 })
++  }
++
++  // Same Team+ plan gate as the pasted-input Brownfield flow.
++  const { data: subscription } = await serviceClient
++    .from('subscriptions')
++    .select('*, plans(*)')
++    .eq('user_id', userId)
++    .eq('status', 'active')
++    .single()
++
++  const plan = subscription?.plans as { name: string } | null
++  if (!plan || !['team', 'enterprise'].includes(plan.name)) {
++    return Response.json({
++      error: 'plan_required',
++      message: 'Brownfield analysis requires Team or Enterprise plan. Upgrade to continue.',
++    }, { status: 403 })
++  }
++
++  const body = await req.json()
++  const parsed = Schema.safeParse(body)
++  if (!parsed.success) {
++    return Response.json({ error: 'Invalid input', details: parsed.error.flatten() }, { status: 400 })
++  }
++
++  const { target_cloud, scan_result } = parsed.data
++  const scanResult = scan_result as ScanResult
++
++  // Fetch KB context, same as the pasted-input flow.
++  let kbContext = ''
++  try {
++    const { data: kbFiles } = await serviceClient.storage.from('knowledge-base').list(`${userId}/`)
++    if (kbFiles && kbFiles.length > 0) {
++      const fileContents = await Promise.all(
++        kbFiles.slice(0, 3).map(async (file) => {
++          const { data } = await serviceClient.storage.from('knowledge-base').download(`${userId}/${file.name}`)
++          if (data) {
++            const text = await data.text()
++            return `=== ${file.name} ===\n${text.slice(0, 1000)}`
++          }
++          return ''
++        })
++      )
++      kbContext = fileContents.filter(Boolean).join('\n\n')
++    }
++  } catch { kbContext = '' }
++
++  try {
++    // Scanner step is skipped entirely — the CLI already produced
++    // structured resource data from real cloud APIs.
++    const auditResult = await runBrownfieldAuditor(scanResult)
++    const migrationPlan = await runPlanner(scanResult, auditResult, target_cloud, kbContext)
++    const terraformOutput = await runBrownfieldEngineer(scanResult, migrationPlan, kbContext)
++
++    const { data: scan, error: insertError } = await serviceClient
++      .from('brownfield_scans')
++      .insert({
++        user_id: userId,
++        input_type: 'auto_discover',
++        input_content: `CLI auto-discover: ${scanResult.total_resources} resources from ${scanResult.source_cloud}`,
++        source_cloud: scanResult.source_cloud,
++        target_cloud,
++        audit_findings: {
++          findings: auditResult.findings,
++          compliance_score: auditResult.compliance_score,
++          critical_count: auditResult.critical_count,
++          high_count: auditResult.high_count,
++          medium_count: auditResult.medium_count,
++          low_count: auditResult.low_count,
++          cost_waste_usd: auditResult.cost_waste_usd,
++          summary: auditResult.summary,
++          scan_summary: {
++            total_resources: scanResult.total_resources,
++            source_cloud: scanResult.source_cloud,
++            region: scanResult.region,
++            resources: scanResult.resources,
++          },
++        },
++        migration_plan: migrationPlan,
++        terraform_output: terraformOutput,
++        cost_before: migrationPlan.cost_before_usd,
++        cost_after: migrationPlan.cost_after_usd,
++        status: 'complete',
++      })
++      .select()
++      .single()
++
++    if (insertError) {
++      console.error('brownfield_scans insert failed (ingest):', insertError)
++      return Response.json({ error: 'Failed to save scan' }, { status: 500 })
++    }
++
++    let adrId: string | null = null
++    if (scan?.id) {
++      adrId = `ADR-${scan.id.slice(0, 8).toUpperCase()}`
++      const adrMarkdown = generateADR(adrId, scanResult, auditResult, migrationPlan)
++      await serviceClient
++        .from('brownfield_scans')
++        .update({ migration_plan: { ...migrationPlan, adr_id: adrId, adr_markdown: adrMarkdown } })
++        .eq('id', scan.id)
++    }
++
++    return Response.json({
++      scan_id: scan?.id,
++      adr_id: adrId,
++      compliance_score: auditResult.compliance_score,
++      findings_count: auditResult.findings.length,
++      url: `${process.env.NEXT_PUBLIC_APP_URL}/brownfield/${scan?.id}`,
++    })
++  } catch (err) {
++    const message = err instanceof Error ? err.message : 'Unknown error'
++    console.error('Ingest pipeline failed:', message)
++    return Response.json({ error: 'Analysis failed', message }, { status: 500 })
++  }
++}
+diff --git a/components/settings/SettingsClient.tsx b/components/settings/SettingsClient.tsx
+index 54ad64a..9258356 100644
+--- a/components/settings/SettingsClient.tsx
++++ b/components/settings/SettingsClient.tsx
+@@ -1,6 +1,6 @@
+ 'use client'
+ 
+-import { useState } from 'react'
++import { useState, useEffect } from 'react'
+ import { createClient } from '@/lib/supabase/client'
+ 
+ interface UserData {
+@@ -16,7 +16,16 @@ interface Props {
+   user: UserData
+ }
+ 
+-type SettingsTab = 'profile' | 'password' | 'integrations' | 'plan' | 'danger'
++type SettingsTab = 'profile' | 'password' | 'integrations' | 'api-keys' | 'plan' | 'danger'
++
++interface ApiKey {
++  id: string
++  name: string
++  key_prefix: string
++  created_at: string
++  last_used_at: string | null
++  revoked_at: string | null
++}
+ 
+ export default function SettingsClient({ user }: Props) {
+   const supabase = createClient()
+@@ -28,6 +37,11 @@ export default function SettingsClient({ user }: Props) {
+   const [newPassword, setNewPassword] = useState('')
+   const [confirmPassword, setConfirmPassword] = useState('')
+   const [pwError, setPwError] = useState('')
++  const [apiKeys, setApiKeys] = useState<ApiKey[]>([])
++  const [newKeyName, setNewKeyName] = useState('')
++  const [generatedKey, setGeneratedKey] = useState<string | null>(null)
++  const [keysLoading, setKeysLoading] = useState(false)
++  const [keyCopied, setKeyCopied] = useState(false)
+ 
+   function showToast(msg: string) {
+     setToast(msg)
+@@ -64,10 +78,77 @@ export default function SettingsClient({ user }: Props) {
+     window.location.href = '/signin'
+   }
+ 
++  async function loadApiKeys() {
++    setKeysLoading(true)
++    try {
++      const res = await fetch('/api/api-keys')
++      const data = await res.json()
++      setApiKeys(data.keys ?? [])
++    } catch {
++      showToast('Failed to load API keys')
++    }
++    setKeysLoading(false)
++  }
++
++  useEffect(() => {
++    if (activeTab !== 'api-keys') return
++    let cancelled = false
++    ;(async () => {
++      setKeysLoading(true)
++      try {
++        const res = await fetch('/api/api-keys')
++        const data = await res.json()
++        if (!cancelled) setApiKeys(data.keys ?? [])
++      } catch {
++        if (!cancelled) showToast('Failed to load API keys')
++      }
++      if (!cancelled) setKeysLoading(false)
++    })()
++    return () => { cancelled = true }
++  }, [activeTab])
++
++  async function createApiKey() {
++    if (!newKeyName.trim()) { showToast('Give the key a name first'); return }
++    setSaving(true)
++    try {
++      const res = await fetch('/api/api-keys', {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({ name: newKeyName.trim() }),
++      })
++      const data = await res.json()
++      if (!res.ok) { showToast(data.error || 'Failed to create key'); setSaving(false); return }
++      setGeneratedKey(data.full_key)
++      setNewKeyName('')
++      await loadApiKeys()
++    } catch {
++      showToast('Failed to create key')
++    }
++    setSaving(false)
++  }
++
++  async function revokeApiKey(id: string) {
++    try {
++      await fetch(`/api/api-keys/${id}`, { method: 'DELETE' })
++      await loadApiKeys()
++      showToast('Key revoked')
++    } catch {
++      showToast('Failed to revoke key')
++    }
++  }
++
++  function copyGeneratedKey() {
++    if (!generatedKey) return
++    navigator.clipboard.writeText(generatedKey)
++    setKeyCopied(true)
++    setTimeout(() => setKeyCopied(false), 2000)
++  }
++
+   const tabs: { id: SettingsTab; label: string }[] = [
+     { id: 'profile', label: 'Profile' },
+     { id: 'password', label: 'Password' },
+     { id: 'integrations', label: 'Integrations' },
++    { id: 'api-keys', label: 'API Keys' },
+     { id: 'plan', label: 'Plan & billing' },
+     { id: 'danger', label: 'Danger zone' },
+   ]
+@@ -257,6 +338,87 @@ export default function SettingsClient({ user }: Props) {
+               </div>
+             )}
+ 
++            {/* API Keys */}
++            {activeTab === 'api-keys' && (
++              <div className="flex flex-col gap-5">
++                <div className="border border-gray-100 rounded-xl overflow-hidden">
++                  <div className="px-5 py-4 border-b border-gray-50 bg-gray-50">
++                    <div className="text-sm font-semibold text-black">API Keys</div>
++                    <div className="text-xs text-gray-400 mt-0.5">
++                      Used by the ArchAI CLI to authenticate Brownfield auto-discover scans. Never shared with our servers beyond authentication — treat these like a password.
++                    </div>
++                  </div>
++                  <div className="p-5">
++                    {generatedKey && (
++                      <div className="mb-5 border-2 border-amber-200 bg-amber-50 rounded-lg p-4">
++                        <div className="text-xs font-semibold text-amber-700 mb-2">
++                          Copy this key now — it won&apos;t be shown again
++                        </div>
++                        <div className="flex items-center gap-2">
++                          <code className="flex-1 text-xs bg-white border border-amber-200 rounded px-3 py-2 font-mono break-all">{generatedKey}</code>
++                          <button onClick={copyGeneratedKey} className="text-xs bg-black text-white px-3 py-2 rounded whitespace-nowrap hover:opacity-85 transition-opacity">
++                            {keyCopied ? '✓ Copied' : 'Copy'}
++                          </button>
++                        </div>
++                        <button onClick={() => setGeneratedKey(null)} className="text-xs text-amber-600 underline mt-2">
++                          Done
++                        </button>
++                      </div>
++                    )}
++
++                    <div className="flex gap-2 mb-5">
++                      <input
++                        type="text"
++                        value={newKeyName}
++                        onChange={e => setNewKeyName(e.target.value)}
++                        placeholder="Key name, e.g. 'Production AWS scanner'"
++                        className="flex-1 px-3 py-2.5 border border-gray-200 rounded-md text-sm outline-none focus:border-black transition-colors"
++                      />
++                      <button
++                        onClick={createApiKey}
++                        disabled={saving}
++                        className="px-5 py-2 bg-black text-white rounded-md text-sm font-medium hover:opacity-85 transition-opacity disabled:opacity-50 whitespace-nowrap"
++                      >
++                        {saving ? 'Generating...' : '+ Generate key'}
++                      </button>
++                    </div>
++
++                    {keysLoading ? (
++                      <p className="text-xs text-gray-400">Loading...</p>
++                    ) : apiKeys.length === 0 ? (
++                      <p className="text-xs text-gray-400">No API keys yet. Generate one to use the ArchAI CLI for Brownfield auto-discover.</p>
++                    ) : (
++                      <div className="flex flex-col gap-2">
++                        {apiKeys.map(k => (
++                          <div key={k.id} className="flex items-center justify-between px-4 py-3 border border-gray-100 rounded-lg">
++                            <div>
++                              <div className="text-sm font-medium text-black flex items-center gap-2">
++                                {k.name}
++                                {k.revoked_at && <span className="text-[10px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full font-semibold">REVOKED</span>}
++                              </div>
++                              <div className="text-xs text-gray-400 font-mono mt-0.5">{k.key_prefix}...</div>
++                              <div className="text-[11px] text-gray-400 mt-0.5">
++                                Created {new Date(k.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
++                                {k.last_used_at && ` · Last used ${new Date(k.last_used_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`}
++                              </div>
++                            </div>
++                            {!k.revoked_at && (
++                              <button
++                                onClick={() => revokeApiKey(k.id)}
++                                className="text-xs text-red-500 hover:text-red-700 px-3 py-1.5 rounded border border-red-100 hover:bg-red-50 transition-colors"
++                              >
++                                Revoke
++                              </button>
++                            )}
++                          </div>
++                        ))}
++                      </div>
++                    )}
++                  </div>
++                </div>
++              </div>
++            )}
++
+             {/* Plan */}
+             {activeTab === 'plan' && (
+               <div className="flex flex-col gap-4">
+diff --git a/lib/api-keys.ts b/lib/api-keys.ts
+new file mode 100644
+index 0000000..c5d5c59
+--- /dev/null
++++ b/lib/api-keys.ts
+@@ -0,0 +1,15 @@
++import crypto from 'crypto'
++
++const KEY_PREFIX = 'archai_live_'
++
++export function generateApiKey(): { fullKey: string; keyPrefix: string; keyHash: string } {
++  const random = crypto.randomBytes(24).toString('hex')
++  const fullKey = `${KEY_PREFIX}${random}`
++  const keyPrefix = fullKey.slice(0, KEY_PREFIX.length + 8) // e.g. archai_live_a1b2c3d4
++  const keyHash = hashApiKey(fullKey)
++  return { fullKey, keyPrefix, keyHash }
++}
++
++export function hashApiKey(key: string): string {
++  return crypto.createHash('sha256').update(key).digest('hex')
++}
+diff --git a/lib/supabase/middleware.ts b/lib/supabase/middleware.ts
+index 1e92ea3..73eccc9 100644
+--- a/lib/supabase/middleware.ts
++++ b/lib/supabase/middleware.ts
+@@ -40,7 +40,8 @@ export async function updateSession(request: NextRequest) {
+     path.startsWith('/api/contact') ||
+     path.startsWith('/terms') ||
+     path.startsWith('/privacy') ||
+-    path.startsWith('/doc')
++    path.startsWith('/doc') ||
++    path === '/api/brownfield/ingest'
+ 
+   if (!user && !isPublic) {
+     const url = request.nextUrl.clone()
+-- 
+2.43.0
+

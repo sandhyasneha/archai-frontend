@@ -6,6 +6,7 @@ interface AuditFindingsShape {
 
 interface BrownfieldScan {
   id: string
+  migration_name?: string | null
   source_cloud: string
   target_cloud: string
   status: string
@@ -66,7 +67,9 @@ export default function BrownfieldTable({ scans }: Props) {
           >
             <td className="px-5 py-3.5">
               <div className="text-xs font-medium text-black truncate max-w-xs">
-                {s.source_cloud?.toUpperCase()} → {s.target_cloud?.toUpperCase()} migration
+                {s.migration_name?.trim()
+                  ? s.migration_name
+                  : `${s.source_cloud?.toUpperCase()} → ${s.target_cloud?.toUpperCase()} migration`}
               </div>
               <div className="text-[11px] text-gray-400 mt-0.5">
                 {findingsCount(s.audit_findings)} findings

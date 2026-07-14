@@ -63,6 +63,7 @@ interface MigrationPlan {
 
 interface BrownfieldScan {
   id: string
+  migration_name?: string | null
   input_type: string
   input_content: string
   source_cloud: string
@@ -319,7 +320,9 @@ export default function BrownfieldDetailClient({ scan, user }: Props) {
             {' / '}
             <a href="/brownfield" className="hover:text-black transition-colors">Brownfield</a>
             {' / '}
-            <span className="text-black font-medium">Migration {scan.id.slice(0, 8)}</span>
+            <span className="text-black font-medium">
+              {scan.migration_name?.trim() ? scan.migration_name : `Migration ${scan.id.slice(0, 8)}`}
+            </span>
           </div>
           <div className="flex items-center gap-3">
             <span className="px-2 py-0.5 bg-green-50 text-green-700 rounded-full text-[10px] font-semibold uppercase">

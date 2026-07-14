@@ -1,0 +1,92 @@
+From 54294c3c7ba30bf55470d3b7d71e541b452bc8d8 Mon Sep 17 00:00:00 2001
+From: ram <chan2006@gmail.com>
+Date: Mon, 13 Jul 2026 14:51:14 +0000
+Subject: [PATCH] Fix: don't fabricate audit findings when zero resources are
+ found
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Real bug found via live testing: the Azure Connect test run returned
+0 resources (empty test subscription), but the Auditor agent still
+ran anyway and invented 6 'findings' — RBAC misconfiguration,
+governance gaps, cost management issues — none based on any actual
+scanned resource. For a document meant to support SOC 2/ISO 27001
+audit trails, fabricating findings from empty input is a real
+quality problem, not just an alarmist-tone issue.
+
+Added a guard in all three auto-discover entry points (AWS Connect,
+Azure Connect, CLI ingest): if total_resources === 0, return a
+clear, honest 422 response before the AI pipeline ever runs,
+instead of asking the Auditor to speculate about why the scan came
+back empty. The frontend already reads message/error on failure,
+so no UI changes were needed — the clearer message just displays
+directly.
+
+Verified: tsc --noEmit clean, next build succeeds.
+---
+ app/api/aws-connect/scan/route.ts   | 8 ++++++++
+ app/api/azure-connect/scan/route.ts | 8 ++++++++
+ app/api/brownfield/ingest/route.ts  | 8 ++++++++
+ 3 files changed, 24 insertions(+)
+
+diff --git a/app/api/aws-connect/scan/route.ts b/app/api/aws-connect/scan/route.ts
+index 36bdec0..d615e65 100644
+--- a/app/api/aws-connect/scan/route.ts
++++ b/app/api/aws-connect/scan/route.ts
+@@ -62,6 +62,14 @@ export async function POST(req: NextRequest) {
+     const { resources, warnings } = await scanAWSWithAssumedRole(connection.region, creds)
+     const scanResult = buildScanResult(connection.region, resources)
+ 
++    if (scanResult.total_resources === 0) {
++      return Response.json({
++        error: 'no_resources_found',
++        message: `No resources were found in ${connection.region}. This usually means either the account is genuinely empty, or the connected role doesn't have permission to list resources in this region.${warnings.length > 0 ? ' Details: ' + warnings.join('; ') : ''}`,
++        hint: 'Confirm real resources exist in this region/account, and that the Reader permissions cover them, then try again.',
++      }, { status: 422 })
++    }
++
+     if (warnings.length > 0) {
+       console.error('AWS connect scan warnings:', warnings)
+     }
+diff --git a/app/api/azure-connect/scan/route.ts b/app/api/azure-connect/scan/route.ts
+index 8e45787..a8e6717 100644
+--- a/app/api/azure-connect/scan/route.ts
++++ b/app/api/azure-connect/scan/route.ts
+@@ -62,6 +62,14 @@ export async function POST(req: NextRequest) {
+     const { resources, warnings } = await scanAzureWithToken(connection.subscription_id, token)
+     const scanResult = buildScanResult(resources)
+ 
++    if (scanResult.total_resources === 0) {
++      return Response.json({
++        error: 'no_resources_found',
++        message: `No resources were found in subscription ${connection.subscription_id}. This usually means either the subscription is genuinely empty, or the Reader role assignment doesn't fully cover it yet (RBAC changes can take a few minutes to propagate).${warnings.length > 0 ? ' Details: ' + warnings.join('; ') : ''}`,
++        hint: 'Confirm real resources exist in this subscription and that the Reader role assignment has finished propagating, then try again.',
++      }, { status: 422 })
++    }
++
+     if (warnings.length > 0) {
+       console.error('Azure connect scan warnings:', warnings)
+     }
+diff --git a/app/api/brownfield/ingest/route.ts b/app/api/brownfield/ingest/route.ts
+index 40de775..4d5b61a 100644
+--- a/app/api/brownfield/ingest/route.ts
++++ b/app/api/brownfield/ingest/route.ts
+@@ -90,6 +90,14 @@ export async function POST(req: NextRequest) {
+   const { target_cloud, scan_result } = parsed.data
+   const scanResult = scan_result as ScanResult
+ 
++  if (scanResult.total_resources === 0) {
++    return Response.json({
++      error: 'no_resources_found',
++      message: `No resources were found in ${scanResult.region}. This usually means either the account is genuinely empty, or the scanning credentials don't have permission to list resources there.`,
++      hint: 'Confirm real resources exist in this account/region and that your local credentials have the required read permissions, then try again.',
++    }, { status: 422 })
++  }
++
+   // Fetch KB context, same as the pasted-input flow.
+   let kbContext = ''
+   try {
+-- 
+2.43.0
+

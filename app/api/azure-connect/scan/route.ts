@@ -12,6 +12,7 @@ import { z } from 'zod'
 const Schema = z.object({
   connection_id: z.string().uuid(),
   target_cloud: z.enum(['aws', 'azure', 'gcp']),
+  migration_name: z.string().trim().min(1).max(200).nullable().optional(),
 })
 
 export async function POST(req: NextRequest) {
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
   const parsed = Schema.safeParse(body)
   if (!parsed.success) return Response.json({ error: 'Invalid input' }, { status: 400 })
 
-  const { connection_id, target_cloud } = parsed.data
+  const { connection_id, target_cloud, migration_name } = parsed.data
 
   const { data: connection } = await supabase
     .from('azure_connections')
@@ -104,6 +105,7 @@ export async function POST(req: NextRequest) {
         input_content: `Live Azure connection scan: ${scanResult.total_resources} resources from subscription ${connection.subscription_id}`,
         source_cloud: 'azure',
         target_cloud,
+        migration_name: migration_name ?? null,
         audit_findings: {
           findings: auditResult.findings,
           compliance_score: auditResult.compliance_score,

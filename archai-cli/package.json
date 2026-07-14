@@ -1,0 +1,25 @@
+{
+  "name": "archai-cli",
+  "version": "0.1.0",
+  "description": "Local, read-only cloud resource discovery for ArchAI Brownfield auto-discover. Runs entirely on your machine using your own cloud credentials — never sends credentials to ArchAI.",
+  "license": "MIT",
+  "bin": {
+    "archai-cli": "./bin/archai-cli.js"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@aws-sdk/client-ec2": "^3.1081.0",
+    "@aws-sdk/client-s3": "^3.1081.0",
+    "@aws-sdk/client-rds": "^3.1081.0",
+    "@azure/identity": "^4.13.1",
+    "@azure/arm-compute": "^24.1.0",
+    "@azure/arm-storage": "^20.1.0",
+    "@azure/arm-sql": "^11.0.0",
+    "@google-cloud/compute": "^6.13.0",
+    "@google-cloud/storage": "^7.21.0",
+    "googleapis": "^173.0.0"
+  }
+}

@@ -1,0 +1,84 @@
+From edd4f55ad2dea9f77093bcd40b79ddc9d4cf5e82 Mon Sep 17 00:00:00 2001
+From: ram <chan2006@gmail.com>
+Date: Tue, 7 Jul 2026 15:08:43 +0000
+Subject: [PATCH] Fix: revert audit_findings insert to plain array shape
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The previous commit changed audit_findings from a plain findings
+array to a richer nested object (adding compliance_score, severity
+counts, cost_waste_usd, scan_summary). That shape change likely
+failed against the actual column type in production (couldn't
+verify the live schema beforehand), causing the brownfield_scans
+insert to fail silently — which meant scan.id was never returned,
+so the frontend fell back to the old inline results view instead
+of redirecting to /brownfield/[id].
+
+Revert audit_findings to the exact original array shape that was
+proven to work. The new detail page's normaliseAudit() already
+handles this shape (derives severity counts from the array), so
+per-migration pages still work — just without the extra computed
+stats (compliance score, cost waste) which aren't recoverable from
+findings alone. This can be revisited properly with real schema
+access.
+
+Also added error logging on the insert so any future failure shows
+up in server logs instead of failing silently.
+
+Verified: tsc --noEmit clean, next build succeeds (20/20 pages).
+---
+ app/api/brownfield/analyze/route.ts | 23 ++++++-----------------
+ 1 file changed, 6 insertions(+), 17 deletions(-)
+
+diff --git a/app/api/brownfield/analyze/route.ts b/app/api/brownfield/analyze/route.ts
+index 6288ed1..abcc975 100644
+--- a/app/api/brownfield/analyze/route.ts
++++ b/app/api/brownfield/analyze/route.ts
+@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
+         controller.enqueue(encode({ step: 'engineer', status: 'completed', message: 'Terraform generated successfully.', timestamp: now() }))
+ 
+         // Save to Supabase
+-        const { data: scan } = await serviceClient
++        const { data: scan, error: insertError } = await serviceClient
+           .from('brownfield_scans')
+           .insert({
+             user_id: user.id,
+@@ -102,22 +102,7 @@ export async function POST(req: NextRequest) {
+             input_content: input.input_content.slice(0, 5000),
+             source_cloud: scanResult.source_cloud,
+             target_cloud: input.target_cloud,
+-            audit_findings: {
+-              findings: auditResult.findings,
+-              compliance_score: auditResult.compliance_score,
+-              critical_count: auditResult.critical_count,
+-              high_count: auditResult.high_count,
+-              medium_count: auditResult.medium_count,
+-              low_count: auditResult.low_count,
+-              cost_waste_usd: auditResult.cost_waste_usd,
+-              summary: auditResult.summary,
+-              scan_summary: {
+-                total_resources: scanResult.total_resources,
+-                source_cloud: scanResult.source_cloud,
+-                region: scanResult.region,
+-                resources: scanResult.resources,
+-              },
+-            },
++            audit_findings: auditResult.findings,
+             migration_plan: migrationPlan,
+             terraform_output: terraformOutput,
+             cost_before: migrationPlan.cost_before_usd,
+@@ -127,6 +112,10 @@ export async function POST(req: NextRequest) {
+           .select()
+           .single()
+ 
++        if (insertError) {
++          console.error('brownfield_scans insert failed:', insertError)
++        }
++
+         controller.enqueue(encode({
+           step: 'complete',
+           status: 'completed',
+-- 
+2.43.0
+

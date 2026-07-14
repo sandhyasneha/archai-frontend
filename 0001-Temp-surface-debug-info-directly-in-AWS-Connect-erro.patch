@@ -1,0 +1,58 @@
+From 42df9c19919c36abe623bf9a740873b4f2a2f14e Mon Sep 17 00:00:00 2001
+From: ram <chan2006@gmail.com>
+Date: Mon, 13 Jul 2026 03:38:19 +0000
+Subject: [PATCH] Temp: surface debug info directly in AWS Connect error banner
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Every AWS-side check (identity, permission, trust policy, ExternalId
+match) has come back correct during live debugging, which points to
+a bug in this code rather than the AWS setup. Rather than keep
+asking for AWS Console screenshots or DevTools digging, surface the
+actual connection_id, external_id, and role_arn the backend used
+directly in the on-screen error message — turns the next failed
+attempt itself into full diagnostic evidence.
+
+This is intentionally temporary/verbose for debugging and should be
+removed once the root cause is found.
+
+Verified: tsc --noEmit clean, next build succeeds.
+---
+ app/api/aws-connect/confirm/route.ts       | 3 +++
+ components/brownfield/BrownfieldClient.tsx | 5 ++++-
+ 2 files changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/app/api/aws-connect/confirm/route.ts b/app/api/aws-connect/confirm/route.ts
+index f9808cb..da96bd2 100644
+--- a/app/api/aws-connect/confirm/route.ts
++++ b/app/api/aws-connect/confirm/route.ts
+@@ -41,6 +41,9 @@ export async function POST(req: NextRequest) {
+       error: 'Could not assume this role',
+       message: result.error,
+       hint: 'Double-check the Role ARN was copied exactly from the CloudFormation Outputs tab, and that the stack finished creating successfully.',
++      debug_connection_id: connection_id,
++      debug_external_id_used: connection.external_id,
++      debug_role_arn_used: role_arn,
+     }, { status: 400 })
+   }
+ 
+diff --git a/components/brownfield/BrownfieldClient.tsx b/components/brownfield/BrownfieldClient.tsx
+index ed17a98..ebf367b 100644
+--- a/components/brownfield/BrownfieldClient.tsx
++++ b/components/brownfield/BrownfieldClient.tsx
+@@ -226,7 +226,10 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
+       })
+       const data = await res.json()
+       if (!res.ok) {
+-        setConnectError(data.message || data.error || 'Could not verify this role')
++        const debugInfo = data.debug_connection_id
++          ? ` [debug: sent connection_id=${data.debug_connection_id} (frontend has ${connectionId}), external_id_used=${data.debug_external_id_used}, role_arn_used=${data.debug_role_arn_used}]`
++          : ''
++        setConnectError((data.message || data.error || 'Could not verify this role') + debugInfo)
+         setConnectLoading(false)
+         return
+       }
+-- 
+2.43.0
+
