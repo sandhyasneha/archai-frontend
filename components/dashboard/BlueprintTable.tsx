@@ -22,6 +22,10 @@ interface Props {
 
 export default function BlueprintTable({ blueprints }: Props) {
   const [selected, setSelected] = useState<Blueprint | null>(null)
+  const [page, setPage] = useState(1)
+  const PER_PAGE = 5
+  const totalPages = Math.max(1, Math.ceil(blueprints.length / PER_PAGE))
+  const paged = blueprints.slice((page - 1) * PER_PAGE, page * PER_PAGE)
 
   if (blueprints.length === 0) {
     return (
@@ -58,7 +62,7 @@ export default function BlueprintTable({ blueprints }: Props) {
           </tr>
         </thead>
         <tbody>
-          {blueprints.map((b) => (
+          {paged.map((b) => (
             <tr
               key={b.id}
               className="border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors cursor-pointer"
@@ -117,6 +121,23 @@ export default function BlueprintTable({ blueprints }: Props) {
           ))}
         </tbody>
       </table>
+
+      {blueprints.length > PER_PAGE && (
+        <div className="flex items-center justify-between px-5 py-3 border-t border-gray-50">
+          <div className="text-xs text-gray-400">
+            Showing {Math.min((page - 1) * PER_PAGE + 1, blueprints.length)}–{Math.min(page * PER_PAGE, blueprints.length)} of {blueprints.length} blueprints
+          </div>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setPage(1)} disabled={page === 1} className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-md disabled:opacity-40 hover:bg-gray-50">First</button>
+            <button onClick={() => setPage(p => p - 1)} disabled={page === 1} className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-md disabled:opacity-40 hover:bg-gray-50">Prev</button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+              <button key={p} onClick={() => setPage(p)} className={`px-2.5 py-1.5 text-xs border rounded-md ${page === p ? 'bg-black text-white border-black' : 'border-gray-200 hover:bg-gray-50'}`}>{p}</button>
+            ))}
+            <button onClick={() => setPage(p => p + 1)} disabled={page === totalPages} className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-md disabled:opacity-40 hover:bg-gray-50">Next</button>
+            <button onClick={() => setPage(totalPages)} disabled={page === totalPages} className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-md disabled:opacity-40 hover:bg-gray-50">Last</button>
+          </div>
+        </div>
+      )}
 
       {selected && (
         <BlueprintModal
