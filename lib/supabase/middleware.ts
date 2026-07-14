@@ -42,7 +42,9 @@ export async function updateSession(request: NextRequest) {
     path.startsWith('/privacy') ||
     path.startsWith('/doc') ||
     path === '/api/brownfield/ingest' ||
-    path === '/api/azure-connect/callback'
+    path === '/api/azure-connect/callback' ||
+    path === '/api/keystone/chat' ||
+    path === '/api/keystone/lead'
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone()
