@@ -44,7 +44,10 @@ export async function updateSession(request: NextRequest) {
     path === '/api/brownfield/ingest' ||
     path === '/api/azure-connect/callback' ||
     path === '/api/keystone/chat' ||
-    path === '/api/keystone/lead'
+    path === '/api/keystone/lead' ||
+    path === '/robots.txt' ||
+    path === '/sitemap.xml' ||
+    path === '/llms.txt'
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone()
