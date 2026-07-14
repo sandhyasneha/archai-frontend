@@ -1,0 +1,131 @@
+diff --git a/components/dashboard/BlueprintTable.tsx b/components/dashboard/BlueprintTable.tsx
+index 704a933..805c4a5 100644
+--- a/components/dashboard/BlueprintTable.tsx
++++ b/components/dashboard/BlueprintTable.tsx
+@@ -22,6 +22,10 @@ interface Props {
+ 
+ export default function BlueprintTable({ blueprints }: Props) {
+   const [selected, setSelected] = useState<Blueprint | null>(null)
++  const [page, setPage] = useState(1)
++  const PER_PAGE = 5
++  const totalPages = Math.max(1, Math.ceil(blueprints.length / PER_PAGE))
++  const paged = blueprints.slice((page - 1) * PER_PAGE, page * PER_PAGE)
+ 
+   if (blueprints.length === 0) {
+     return (
+@@ -58,7 +62,7 @@ export default function BlueprintTable({ blueprints }: Props) {
+           </tr>
+         </thead>
+         <tbody>
+-          {blueprints.map((b) => (
++          {paged.map((b) => (
+             <tr
+               key={b.id}
+               className="border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors cursor-pointer"
+@@ -118,6 +122,23 @@ export default function BlueprintTable({ blueprints }: Props) {
+         </tbody>
+       </table>
+ 
++      {blueprints.length > PER_PAGE && (
++        <div className="flex items-center justify-between px-5 py-3 border-t border-gray-50">
++          <div className="text-xs text-gray-400">
++            Showing {Math.min((page - 1) * PER_PAGE + 1, blueprints.length)}–{Math.min(page * PER_PAGE, blueprints.length)} of {blueprints.length} blueprints
++          </div>
++          <div className="flex items-center gap-1">
++            <button onClick={() => setPage(1)} disabled={page === 1} className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-md disabled:opacity-40 hover:bg-gray-50">First</button>
++            <button onClick={() => setPage(p => p - 1)} disabled={page === 1} className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-md disabled:opacity-40 hover:bg-gray-50">Prev</button>
++            {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
++              <button key={p} onClick={() => setPage(p)} className={`px-2.5 py-1.5 text-xs border rounded-md ${page === p ? 'bg-black text-white border-black' : 'border-gray-200 hover:bg-gray-50'}`}>{p}</button>
++            ))}
++            <button onClick={() => setPage(p => p + 1)} disabled={page === totalPages} className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-md disabled:opacity-40 hover:bg-gray-50">Next</button>
++            <button onClick={() => setPage(totalPages)} disabled={page === totalPages} className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-md disabled:opacity-40 hover:bg-gray-50">Last</button>
++          </div>
++        </div>
++      )}
++
+       {selected && (
+         <BlueprintModal
+           blueprint={selected}
+diff --git a/components/dashboard/BrownfieldTable.tsx b/components/dashboard/BrownfieldTable.tsx
+index c245b56..eea14da 100644
+--- a/components/dashboard/BrownfieldTable.tsx
++++ b/components/dashboard/BrownfieldTable.tsx
+@@ -1,11 +1,14 @@
+ 'use client'
+ 
++import { useState } from 'react'
++
+ interface AuditFindingsShape {
+   findings?: unknown[]
+ }
+ 
+ interface BrownfieldScan {
+   id: string
++  migration_name?: string | null
+   source_cloud: string
+   target_cloud: string
+   status: string
+@@ -24,6 +27,11 @@ function findingsCount(raw: unknown[] | AuditFindingsShape): number {
+ }
+ 
+ export default function BrownfieldTable({ scans }: Props) {
++  const [page, setPage] = useState(1)
++  const PER_PAGE = 5
++  const totalPages = Math.max(1, Math.ceil(scans.length / PER_PAGE))
++  const paged = scans.slice((page - 1) * PER_PAGE, page * PER_PAGE)
++
+   if (scans.length === 0) {
+     return (
+       <div className="flex flex-col items-center justify-center py-16 text-center px-8">
+@@ -40,6 +48,7 @@ export default function BrownfieldTable({ scans }: Props) {
+   }
+ 
+   return (
++    <>
+     <table className="w-full">
+       <thead>
+         <tr className="border-b border-gray-50">
+@@ -58,7 +67,7 @@ export default function BrownfieldTable({ scans }: Props) {
+         </tr>
+       </thead>
+       <tbody>
+-        {scans.map((s) => (
++        {paged.map((s) => (
+           <tr
+             key={s.id}
+             className="border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors cursor-pointer"
+@@ -66,7 +75,9 @@ export default function BrownfieldTable({ scans }: Props) {
+           >
+             <td className="px-5 py-3.5">
+               <div className="text-xs font-medium text-black truncate max-w-xs">
+-                {s.source_cloud?.toUpperCase()} → {s.target_cloud?.toUpperCase()} migration
++                {s.migration_name?.trim()
++                  ? s.migration_name
++                  : `${s.source_cloud?.toUpperCase()} → ${s.target_cloud?.toUpperCase()} migration`}
+               </div>
+               <div className="text-[11px] text-gray-400 mt-0.5">
+                 {findingsCount(s.audit_findings)} findings
+@@ -116,5 +127,23 @@ export default function BrownfieldTable({ scans }: Props) {
+         ))}
+       </tbody>
+     </table>
++
++    {scans.length > PER_PAGE && (
++      <div className="flex items-center justify-between px-5 py-3 border-t border-gray-50">
++        <div className="text-xs text-gray-400">
++          Showing {Math.min((page - 1) * PER_PAGE + 1, scans.length)}–{Math.min(page * PER_PAGE, scans.length)} of {scans.length} migrations
++        </div>
++        <div className="flex items-center gap-1">
++          <button onClick={() => setPage(1)} disabled={page === 1} className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-md disabled:opacity-40 hover:bg-gray-50">First</button>
++          <button onClick={() => setPage(p => p - 1)} disabled={page === 1} className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-md disabled:opacity-40 hover:bg-gray-50">Prev</button>
++          {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
++            <button key={p} onClick={() => setPage(p)} className={`px-2.5 py-1.5 text-xs border rounded-md ${page === p ? 'bg-black text-white border-black' : 'border-gray-200 hover:bg-gray-50'}`}>{p}</button>
++          ))}
++          <button onClick={() => setPage(p => p + 1)} disabled={page === totalPages} className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-md disabled:opacity-40 hover:bg-gray-50">Next</button>
++          <button onClick={() => setPage(totalPages)} disabled={page === totalPages} className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-md disabled:opacity-40 hover:bg-gray-50">Last</button>
++        </div>
++      </div>
++    )}
++    </>
+   )
+ }
