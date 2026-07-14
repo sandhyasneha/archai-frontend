@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import BlueprintTable from '@/components/dashboard/BlueprintTable'
 import BrownfieldTable from '@/components/dashboard/BrownfieldTable'
+import NewProjectMenu from '@/components/dashboard/NewProjectMenu'
 
 interface NavItemProps {
   icon: string
@@ -113,9 +114,7 @@ export default async function DashboardPage() {
       <div className="flex-1 flex flex-col min-w-0">
         <div className="border-b border-gray-100 px-7 py-3 flex items-center justify-between flex-shrink-0">
           <div className="text-xs text-gray-400">Dashboard</div>
-          <a href="/project/new" className="px-3.5 py-1.5 bg-black text-white rounded-md text-xs font-medium hover:opacity-85 transition-opacity">
-            + New project
-          </a>
+          <NewProjectMenu />
         </div>
 
         <div className="flex-1 overflow-y-auto p-7">
