@@ -1,8 +1,6 @@
 import type { Metadata } from 'next'
 import './globals.css'
-import dynamic from 'next/dynamic'
-
-const KeystoneWidget = dynamic(() => import('@/components/keystone/KeystoneWidget'), { ssr: false })
+import KeystoneMount from '@/components/keystone/KeystoneMount'
 
 export const metadata: Metadata = {
   title: 'ArchAI — Enterprise Cloud Architect Platform',
@@ -18,7 +16,7 @@ export default function RootLayout({
     <html lang="en">
       <body>
         {children}
-        <KeystoneWidget />
+        <KeystoneMount />
       </body>
     </html>
   )
