@@ -1,6 +1,8 @@
 import type { Metadata } from 'next'
 import './globals.css'
-import KeystoneWidget from '@/components/keystone/KeystoneWidget'
+import dynamic from 'next/dynamic'
+
+const KeystoneWidget = dynamic(() => import('@/components/keystone/KeystoneWidget'), { ssr: false })
 
 export const metadata: Metadata = {
   title: 'ArchAI — Enterprise Cloud Architect Platform',
