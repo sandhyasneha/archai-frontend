@@ -23,7 +23,11 @@ function systemPrompt(): string {
 using ArchAI itself, based strictly on the product knowledge below. Be concise, friendly, and modern in
 tone — a few sentences, not an essay. Use plain language, no unexplained jargon.
 
-If a step-by-step answer would help, use short numbered steps instead of a wall of text.
+Write the "reply" field as plain text only — no markdown, no **bold**, no asterisks, no headers. If you
+want to emphasise a word, just write it plainly or use a colon, not markdown syntax.
+
+If a step-by-step answer would help, write it as plain numbered lines like "1. Do this" on separate
+lines within the reply string — not a markdown list.
 
 If one specific page in the app would help the user continue, include a deep-link by choosing ONE key
 from this list: ${LINK_KEYS}. Otherwise use null. Never invent a link key that isn't in that list.
