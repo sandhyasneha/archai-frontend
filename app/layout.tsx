@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import KeystoneWidget from '@/components/keystone/KeystoneWidget'
 
 export const metadata: Metadata = {
   title: 'ArchAI — Enterprise Cloud Architect Platform',
@@ -13,7 +14,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        {children}
+        <KeystoneWidget />
+      </body>
     </html>
   )
 }
