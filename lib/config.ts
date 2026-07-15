@@ -2,6 +2,13 @@ export const config = {
   anthropic: {
     api_key: process.env.ANTHROPIC_API_KEY!,
   },
+  resend: {
+    api_key: process.env.RESEND_API_KEY!,
+    from: process.env.RESEND_FROM_EMAIL || 'ArchAI <info@nexplan.io>',
+  },
+  cron: {
+    secret: process.env.CRON_SECRET!,
+  },
   supabase: {
     url: process.env.NEXT_PUBLIC_SUPABASE_URL!,
     anon_key: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

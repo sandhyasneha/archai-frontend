@@ -47,7 +47,9 @@ export async function updateSession(request: NextRequest) {
     path === '/api/keystone/lead' ||
     path === '/robots.txt' ||
     path === '/sitemap.xml' ||
-    path === '/llms.txt'
+    path === '/llms.txt' ||
+    path === '/api/cron/free-tier-reminder' ||
+    path === '/api/cron/unsubscribe'
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone()
