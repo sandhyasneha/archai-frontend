@@ -25,6 +25,21 @@ interface PipelineEvent {
   payload?: unknown
 }
 
+const PRESETS: { label: string; prompt: string }[] = [
+  {
+    label: 'SaaS App',
+    prompt: 'Build a highly available SaaS backend for 10,000 active users with containerised microservices, a managed PostgreSQL database, Redis caching, and a CDN. Must support SOC 2 and GDPR compliance.',
+  },
+  {
+    label: 'E-commerce',
+    prompt: 'Build an e-commerce platform with a product catalog, checkout with payment processing, order management, and auto-scaling for traffic spikes during sales events. Must be PCI-DSS friendly.',
+  },
+  {
+    label: 'ML API',
+    prompt: 'Build a scalable API for serving machine learning model inference with GPU-backed compute, request queuing, auto-scaling based on load, and a managed object store for model artifacts.',
+  },
+]
+
 export default function StepInfra({ data, updateData, onNext }: Props) {
   const [loading, setLoading] = useState(false)
   const [agents, setAgents] = useState<AgentState>({
@@ -191,6 +206,24 @@ if (!response.ok) {
         <label className="block text-xs font-medium text-gray-600 mb-2">
           System requirement
         </label>
+
+        <div className="flex flex-wrap gap-2 mb-2.5">
+          {PRESETS.map(preset => (
+            <button
+              key={preset.label}
+              type="button"
+              onClick={() => {
+                updateData({ prompt: preset.prompt })
+                promptRef.current?.focus()
+              }}
+              disabled={loading}
+              className="px-3 py-1.5 border border-gray-200 rounded-full text-xs font-medium text-gray-600 hover:border-black hover:text-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+
         <textarea
           ref={promptRef}
           value={data.prompt}
