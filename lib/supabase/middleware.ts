@@ -32,6 +32,7 @@ export async function updateSession(request: NextRequest) {
   const isPublic =
     path === '/' ||
     path.endsWith('.html') ||
+    path.endsWith('.pptx') ||
     path.startsWith('/signin') ||
     path.startsWith('/register') ||
     path.startsWith('/verify') ||
