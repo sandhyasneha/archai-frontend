@@ -46,6 +46,8 @@ export async function POST(req: NextRequest) {
     .eq('status', 'active')
     .single()
 
+  const SCOUT_BLUEPRINT_LIMIT = 3
+
   if (subscription) {
     const plan = subscription.plans as {
       name: string
@@ -60,6 +62,39 @@ export async function POST(req: NextRequest) {
       }), { status: 403, headers: { 'Content-Type': 'application/json' } })
     }
     if (plan.name === 'scout' && input.cloud_provider !== 'aws') {
+      return new Response(JSON.stringify({
+        error: 'cloud_not_allowed',
+        message: 'Your Scout plan only supports AWS. Upgrade to Pro for Azure and GCP access.',
+        upgrade_required: true,
+      }), { status: 403, headers: { 'Content-Type': 'application/json' } })
+    }
+  } else {
+    // No active subscription row means Scout (free) plan by default — this
+    // branch was previously entirely unenforced; a free user could generate
+    // unlimited blueprints on any cloud. Enforce the same Scout limits here,
+    // counting this calendar month's blueprints directly since there's no
+    // subscriptions row to track a blueprints_used counter on.
+    const startOfMonth = new Date()
+    startOfMonth.setDate(1)
+    startOfMonth.setHours(0, 0, 0, 0)
+
+    const { count, error: countError } = await serviceClient
+      .from('blueprints')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .gte('created_at', startOfMonth.toISOString())
+
+    if (countError) {
+      return new Response(JSON.stringify({ error: 'count_failed', message: countError.message }), { status: 500 })
+    }
+    if ((count ?? 0) >= SCOUT_BLUEPRINT_LIMIT) {
+      return new Response(JSON.stringify({
+        error: 'limit_exceeded',
+        message: `You have reached your Scout plan limit of ${SCOUT_BLUEPRINT_LIMIT} blueprints/month. Please upgrade to continue.`,
+        upgrade_required: true,
+      }), { status: 403, headers: { 'Content-Type': 'application/json' } })
+    }
+    if (input.cloud_provider !== 'aws') {
       return new Response(JSON.stringify({
         error: 'cloud_not_allowed',
         message: 'Your Scout plan only supports AWS. Upgrade to Pro for Azure and GCP access.',
