@@ -566,7 +566,7 @@ export default function BrownfieldClient({ user, isPlanAllowed }: Props) {
                 Brownfield migration analysis is available on Team and Enterprise plans.
                 Upgrade to scan and migrate your existing infrastructure.
               </p>
-              <a href="/settings" className="px-6 py-2.5 bg-black text-white rounded-md text-sm font-medium hover:opacity-85 transition-opacity">
+              <a href="/settings?tab=plan" className="px-6 py-2.5 bg-black text-white rounded-md text-sm font-medium hover:opacity-85 transition-opacity">
                 Upgrade plan
               </a>
             </div>

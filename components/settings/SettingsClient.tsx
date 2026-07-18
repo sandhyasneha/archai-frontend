@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 interface UserData {
@@ -52,7 +53,17 @@ interface ApiKey {
 
 export default function SettingsClient({ user, subscription, plans, scoutBlueprintsUsed }: Props) {
   const supabase = createClient()
+  const searchParams = useSearchParams()
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile')
+
+  useEffect(() => {
+    const tabParam = searchParams.get('tab')
+    const validTabs: SettingsTab[] = ['profile', 'password', 'integrations', 'api-keys', 'plan', 'danger']
+    if (tabParam && (validTabs as string[]).includes(tabParam)) {
+      setActiveTab(tabParam as SettingsTab)
+    }
+  }, [searchParams])
+
   const [fullName, setFullName] = useState(user.full_name)
   const [orgName, setOrgName] = useState(user.org_name)
   const [saving, setSaving] = useState(false)

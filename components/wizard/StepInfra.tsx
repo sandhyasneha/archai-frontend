@@ -52,6 +52,7 @@ export default function StepInfra({ data, updateData, onNext }: Props) {
   const [progress, setProgress] = useState(0)
   const [blueprintReady, setBlueprintReady] = useState(false)
   const [error, setError] = useState('')
+  const [upgradeRequired, setUpgradeRequired] = useState(false)
   const promptRef = useRef<HTMLTextAreaElement>(null)
 
   const clouds = ['aws', 'azure', 'gcp'] as const
@@ -64,6 +65,7 @@ export default function StepInfra({ data, updateData, onNext }: Props) {
     }
 
     setError('')
+    setUpgradeRequired(false)
     setLoading(true)
     setBlueprintReady(false)
     setAgents({ gatekeeper: 'idle', architect: 'idle', engineer: 'idle', auditor: 'idle' })
@@ -85,6 +87,7 @@ if (!response.ok) {
   if (response.status === 403) {
     const data = await response.json()
     setError(data.message || 'Plan limit reached. Please upgrade.')
+    setUpgradeRequired(!!data.upgrade_required)
     setLoading(false)
     return
   }
@@ -237,7 +240,19 @@ if (!response.ok) {
             error && !data.prompt ? 'border-red-400' : 'border-gray-200',
           ].join(' ')}
         />
-        {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+        {error && (
+          <div className="mt-1">
+            <p className="text-xs text-red-500">{error}</p>
+            {upgradeRequired && (
+              <a
+                href="/settings?tab=plan"
+                className="inline-block mt-2 px-4 py-2 bg-black text-white rounded-md text-xs font-medium hover:opacity-85 transition-opacity"
+              >
+                Upgrade plan
+              </a>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Cloud provider */}
