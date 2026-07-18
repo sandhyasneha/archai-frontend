@@ -50,7 +50,8 @@ export async function updateSession(request: NextRequest) {
     path === '/sitemap.xml' ||
     path === '/llms.txt' ||
     path === '/api/cron/free-tier-reminder' ||
-    path === '/api/cron/unsubscribe'
+    path === '/api/cron/unsubscribe' ||
+    path === '/api/stripe/webhook'
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone()

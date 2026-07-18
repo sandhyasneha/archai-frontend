@@ -12,8 +12,31 @@ interface UserData {
   created_at: string
 }
 
+interface Plan {
+  id: string
+  name: string
+  display_name: string
+  price_monthly: number
+  blueprint_limit: number
+  clouds: string[]
+  features: Record<string, unknown>
+}
+
+interface Subscription {
+  id: string
+  status: string
+  billing_cycle: string
+  blueprints_used: number
+  expires_at: string | null
+  stripe_customer_id: string | null
+  plans: Plan
+}
+
 interface Props {
   user: UserData
+  subscription: Subscription | null
+  plans: Plan[]
+  scoutBlueprintsUsed: number
 }
 
 type SettingsTab = 'profile' | 'password' | 'integrations' | 'api-keys' | 'plan' | 'danger'
@@ -27,12 +50,54 @@ interface ApiKey {
   revoked_at: string | null
 }
 
-export default function SettingsClient({ user }: Props) {
+export default function SettingsClient({ user, subscription, plans, scoutBlueprintsUsed }: Props) {
   const supabase = createClient()
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile')
   const [fullName, setFullName] = useState(user.full_name)
   const [orgName, setOrgName] = useState(user.org_name)
   const [saving, setSaving] = useState(false)
+  const [checkoutLoadingPlanId, setCheckoutLoadingPlanId] = useState<string | null>(null)
+  const [portalLoading, setPortalLoading] = useState(false)
+
+  const scoutPlan: Plan = {
+    id: 'scout', name: 'scout', display_name: 'Scout', price_monthly: 0,
+    blueprint_limit: 3, clouds: ['aws'], features: {},
+  }
+  const currentPlan: Plan = subscription?.plans ?? scoutPlan
+  const blueprintsUsed = subscription ? subscription.blueprints_used : scoutBlueprintsUsed
+  const upgradablePlans = plans.filter(p => p.id !== currentPlan.id && p.name !== 'scout')
+
+  async function handleUpgrade(planId: string) {
+    setCheckoutLoadingPlanId(planId)
+    try {
+      const res = await fetch('/api/stripe/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan_id: planId }),
+      })
+      const data = await res.json()
+      if (data.url) window.location.href = data.url
+      else showToast(data.error || 'Could not start checkout')
+    } catch {
+      showToast('Could not start checkout — please try again')
+    } finally {
+      setCheckoutLoadingPlanId(null)
+    }
+  }
+
+  async function handleManageBilling() {
+    setPortalLoading(true)
+    try {
+      const res = await fetch('/api/stripe/portal', { method: 'POST' })
+      const data = await res.json()
+      if (data.url) window.location.href = data.url
+      else showToast(data.error || 'Could not open billing portal')
+    } catch {
+      showToast('Could not open billing portal — please try again')
+    } finally {
+      setPortalLoading(false)
+    }
+  }
   const [toast, setToast] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -429,43 +494,69 @@ export default function SettingsClient({ user }: Props) {
                   <div className="p-5">
                     <div className="flex items-center justify-between mb-4">
                       <div>
-                        <div className="text-lg font-medium text-black">Trial plan</div>
-                        <div className="text-xs text-gray-400 mt-0.5">14-day free trial — no credit card required</div>
+                        <div className="text-lg font-medium text-black">{currentPlan.display_name} plan</div>
+                        <div className="text-xs text-gray-400 mt-0.5">
+                          {currentPlan.blueprint_limit === -1
+                            ? 'Unlimited blueprints/month'
+                            : `${blueprintsUsed} of ${currentPlan.blueprint_limit} blueprints used this month`}
+                          {subscription?.expires_at && (
+                            <> · Renews {new Date(subscription.expires_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</>
+                          )}
+                        </div>
                       </div>
-                      <span className="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-xs font-medium">Free</span>
+                      <span className="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-xs font-medium">
+                        {currentPlan.price_monthly === 0 ? 'Free' : `$${currentPlan.price_monthly}/mo`}
+                      </span>
                     </div>
                     <div className="flex flex-col gap-2 mb-5">
-                      {['3 blueprints per month', 'Greenfield projects only', 'AWS + Azure + GCP support', 'PDF + Terraform export'].map(f => (
+                      {[
+                        currentPlan.blueprint_limit === -1 ? 'Unlimited blueprints/month' : `${currentPlan.blueprint_limit} blueprints/month`,
+                        `${(currentPlan.clouds ?? ['aws']).map(c => c.toUpperCase()).join(', ')} support`,
+                      ].map(f => (
                         <div key={f} className="flex items-center gap-2 text-sm text-gray-600">
                           <span className="text-green-500 text-xs">✓</span> {f}
                         </div>
                       ))}
                     </div>
-                    <button
-                      onClick={() => showToast('Contact info@nexplan.io to upgrade to Pro')}
-                      className="w-full py-2.5 bg-black text-white rounded-md text-sm font-medium hover:opacity-85 transition-opacity"
-                    >
-                      Upgrade to Pro — $499/mo
-                    </button>
+
+                    {subscription?.stripe_customer_id && (
+                      <button
+                        onClick={handleManageBilling}
+                        disabled={portalLoading}
+                        className="w-full py-2.5 border border-gray-200 rounded-md text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-50 mb-2"
+                      >
+                        {portalLoading ? 'Opening billing portal…' : 'Manage billing / cancel subscription'}
+                      </button>
+                    )}
                   </div>
                 </div>
-                <div className="border border-gray-100 rounded-xl overflow-hidden">
-                  <div className="px-5 py-4 border-b border-gray-50 bg-gray-50">
-                    <div className="text-sm font-semibold text-black">Pro plan features</div>
+
+                {upgradablePlans.length > 0 && (
+                  <div className="border border-gray-100 rounded-xl overflow-hidden">
+                    <div className="px-5 py-4 border-b border-gray-50 bg-gray-50">
+                      <div className="text-sm font-semibold text-black">Upgrade</div>
+                    </div>
+                    <div className="p-5 flex flex-col gap-3">
+                      {upgradablePlans.map(plan => (
+                        <div key={plan.id} className="flex items-center justify-between border border-gray-100 rounded-lg px-4 py-3">
+                          <div>
+                            <div className="text-sm font-medium text-black">{plan.display_name}</div>
+                            <div className="text-xs text-gray-400">
+                              {plan.blueprint_limit === -1 ? 'Unlimited' : `${plan.blueprint_limit}/mo`} · {(plan.clouds ?? []).map(c => c.toUpperCase()).join(', ')}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handleUpgrade(plan.id)}
+                            disabled={checkoutLoadingPlanId === plan.id}
+                            className="px-4 py-2 bg-black text-white rounded-md text-xs font-medium hover:opacity-85 transition-opacity disabled:opacity-50"
+                          >
+                            {checkoutLoadingPlanId === plan.id ? 'Redirecting…' : `Upgrade — $${plan.price_monthly}/mo`}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <div className="p-5 grid grid-cols-2 gap-2">
-                    {[
-                      'Unlimited blueprints', 'Greenfield + Brownfield',
-                      'AWS, Azure, GCP support', 'Multi-cloud comparison',
-                      'SOC 2, GDPR, HIPAA compliance', 'DR blueprints + RTO/RPO',
-                      'GitHub push integration', 'Priority support',
-                    ].map(f => (
-                      <div key={f} className="flex items-center gap-2 text-xs text-gray-600">
-                        <span className="text-green-500">✓</span> {f}
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                )}
               </div>
             )}
 

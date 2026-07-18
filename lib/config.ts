@@ -42,6 +42,10 @@ export const config = {
     // email as a Viewer in their own project's IAM for scans to work.
     service_account_key: process.env.ARCHAI_GCP_SERVICE_ACCOUNT_KEY!,
   },
+  stripe: {
+    secret_key: process.env.STRIPE_SECRET_KEY!,
+    webhook_secret: process.env.STRIPE_WEBHOOK_SECRET!,
+  },
 }
 
 // Blocked personal email domains

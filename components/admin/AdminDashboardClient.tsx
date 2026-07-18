@@ -153,8 +153,7 @@ async function deleteContact(id: string) {
     setUpdatingUser(userId)
     const { error } = await supabase
       .from('subscriptions')
-      .update({ plan_id: planId, status: 'active', blueprints_used: 0 })
-      .eq('user_id', userId)
+      .upsert({ user_id: userId, plan_id: planId, status: 'active', blueprints_used: 0 }, { onConflict: 'user_id' })
     if (error) showToast('Failed: ' + error.message)
     else { showToast(`Plan updated to ${planName}`); setTimeout(() => window.location.reload(), 1500) }
     setUpdatingUser(null)
