@@ -26,10 +26,16 @@ export async function POST() {
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arch.nexplan.io'
 
-  const portalSession = await getStripe().billingPortal.sessions.create({
-    customer: subscription.stripe_customer_id,
-    return_url: `${appUrl}/settings`,
-  })
+  try {
+    const portalSession = await getStripe().billingPortal.sessions.create({
+      customer: subscription.stripe_customer_id,
+      return_url: `${appUrl}/settings`,
+    })
 
-  return Response.json({ url: portalSession.url })
+    return Response.json({ url: portalSession.url })
+  } catch (err) {
+    console.error('Stripe billing portal session creation failed:', err)
+    const message = err instanceof Error ? err.message : 'Unknown error opening billing portal'
+    return Response.json({ error: message }, { status: 500 })
+  }
 }

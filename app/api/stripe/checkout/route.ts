@@ -49,17 +49,23 @@ export async function POST(req: NextRequest) {
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arch.nexplan.io'
 
-  const session = await getStripe().checkout.sessions.create({
-    mode: 'subscription',
-    line_items: [{ price: plan.stripe_price_id, quantity: 1 }],
-    customer: existingSub?.stripe_customer_id || undefined,
-    customer_email: existingSub?.stripe_customer_id ? undefined : (user.email ?? undefined),
-    client_reference_id: user.id,
-    metadata: { user_id: user.id, plan_id: plan.id },
-    subscription_data: { metadata: { user_id: user.id, plan_id: plan.id } },
-    success_url: `${appUrl}/settings?checkout=success`,
-    cancel_url: `${appUrl}/settings?checkout=cancelled`,
-  })
+  try {
+    const session = await getStripe().checkout.sessions.create({
+      mode: 'subscription',
+      line_items: [{ price: plan.stripe_price_id, quantity: 1 }],
+      customer: existingSub?.stripe_customer_id || undefined,
+      customer_email: existingSub?.stripe_customer_id ? undefined : (user.email ?? undefined),
+      client_reference_id: user.id,
+      metadata: { user_id: user.id, plan_id: plan.id },
+      subscription_data: { metadata: { user_id: user.id, plan_id: plan.id } },
+      success_url: `${appUrl}/settings?checkout=success`,
+      cancel_url: `${appUrl}/settings?checkout=cancelled`,
+    })
 
-  return Response.json({ url: session.url })
+    return Response.json({ url: session.url })
+  } catch (err) {
+    console.error('Stripe checkout session creation failed:', err)
+    const message = err instanceof Error ? err.message : 'Unknown error creating checkout session'
+    return Response.json({ error: message }, { status: 500 })
+  }
 }
