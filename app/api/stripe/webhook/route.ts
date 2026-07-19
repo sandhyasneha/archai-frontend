@@ -11,6 +11,27 @@ function serviceClient() {
   )
 }
 
+// Our subscriptions.status column only allows: active, cancelled, expired, trial
+// (British spelling — note the double L). Stripe's own subscription statuses use
+// a different, wider vocabulary (active, trialing, past_due, canceled, unpaid,
+// incomplete, incomplete_expired, paused) — map rather than pass through raw,
+// or any status other than 'active' violates our CHECK constraint.
+function mapStripeStatus(stripeStatus: string): string {
+  switch (stripeStatus) {
+    case 'active':
+      return 'active'
+    case 'trialing':
+      return 'trial'
+    case 'canceled':
+      return 'cancelled'
+    default:
+      // past_due, unpaid, incomplete, incomplete_expired, paused — none of these
+      // grant access under our enforcement logic (which only checks status ===
+      // 'active'), so map them to 'expired' rather than invent new DB states.
+      return 'expired'
+  }
+}
+
 async function planIdForPriceId(priceId: string | undefined): Promise<string | null> {
   if (!priceId) return null
   const { data } = await serviceClient().from('plans').select('id').eq('stripe_price_id', priceId).maybeSingle()
@@ -93,7 +114,7 @@ export async function POST(req: NextRequest) {
       const expiresAt = periodEnd ? new Date(periodEnd * 1000).toISOString() : null
 
       const updates: Record<string, unknown> = {
-        status: sub.status === 'active' ? 'active' : sub.status,
+        status: mapStripeStatus(sub.status),
         expires_at: expiresAt,
       }
       if (planId) updates.plan_id = planId
@@ -107,7 +128,7 @@ export async function POST(req: NextRequest) {
       // Mark canceled rather than deleting the row — existing enforcement
       // logic only treats status='active' rows as a paid plan, so this
       // correctly reverts the user to Scout (free tier) behaviour.
-      await db.from('subscriptions').update({ status: 'canceled' }).eq('stripe_subscription_id', sub.id)
+      await db.from('subscriptions').update({ status: 'cancelled' }).eq('stripe_subscription_id', sub.id)
       break
     }
 
