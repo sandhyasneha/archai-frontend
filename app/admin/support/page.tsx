@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 type TicketStatus =
   | 'received'
@@ -25,6 +25,8 @@ interface Ticket {
   github_pr_url: string | null;
   account_context: any;
   created_at: string;
+  updated_at: string | null;
+  resolved_at: string | null;
 }
 
 const STATUS_LABEL: Record<TicketStatus, string> = {
@@ -49,9 +51,25 @@ const FILTERS: Array<'all' | TicketStatus> = [
   'implemented',
 ];
 
+// Full date + time, e.g. "20 Jul 2026, 21:53" — used everywhere a ticket
+// timestamp is shown, since with volume a bare date isn't enough to tell
+// tickets apart or judge how stale something is.
+function formatTimestamp(iso: string | null): string {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString(undefined, {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 export default function SupportTriagePage() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [filter, setFilter] = useState<'all' | TicketStatus>('all');
+  const [dateFrom, setDateFrom] = useState<string>(''); // yyyy-mm-dd from <input type="date">
+  const [dateTo, setDateTo] = useState<string>('');
   const [selected, setSelected] = useState<Ticket | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -81,7 +99,25 @@ export default function SupportTriagePage() {
     { total: 0 } as Record<string, number>
   );
 
-  const filtered = filter === 'all' ? tickets : tickets.filter((t) => t.status === filter);
+  const filtered = useMemo(() => {
+    let list = filter === 'all' ? tickets : tickets.filter((t) => t.status === filter);
+
+    if (dateFrom) {
+      const fromTime = new Date(dateFrom + 'T00:00:00').getTime();
+      list = list.filter((t) => new Date(t.created_at).getTime() >= fromTime);
+    }
+    if (dateTo) {
+      // end-of-day on the "to" date, so the selected day itself is included
+      const toTime = new Date(dateTo + 'T23:59:59').getTime();
+      list = list.filter((t) => new Date(t.created_at).getTime() <= toTime);
+    }
+    return list;
+  }, [tickets, filter, dateFrom, dateTo]);
+
+  function clearDateFilter() {
+    setDateFrom('');
+    setDateTo('');
+  }
 
   async function handleApprove(id: string) {
     setActionLoading(true);
@@ -130,7 +166,7 @@ export default function SupportTriagePage() {
           </div>
 
           <select
-            className="w-full border-2 border-black rounded p-2 text-sm font-semibold"
+            className="w-full border-2 border-black rounded p-2 text-sm font-semibold mb-3"
             value={filter}
             onChange={(e) => setFilter(e.target.value as any)}
           >
@@ -140,6 +176,38 @@ export default function SupportTriagePage() {
               </option>
             ))}
           </select>
+
+          {/* Date range filter */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[10px] font-bold uppercase tracking-wide text-gray-500">
+              Date range
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="flex-1 border-2 border-black rounded p-1.5 text-xs"
+                aria-label="From date"
+              />
+              <span className="text-xs text-gray-400">to</span>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="flex-1 border-2 border-black rounded p-1.5 text-xs"
+                aria-label="To date"
+              />
+            </div>
+            {(dateFrom || dateTo) && (
+              <button
+                onClick={clearDateFilter}
+                className="self-start text-[10px] font-bold uppercase underline text-gray-500 mt-0.5"
+              >
+                Clear date filter
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto">
@@ -159,9 +227,7 @@ export default function SupportTriagePage() {
                 <span className="text-[10px] font-bold uppercase border border-current rounded px-1.5 py-0.5">
                   {STATUS_LABEL[t.status]}
                 </span>
-                <span className="text-[10px] opacity-60">
-                  {new Date(t.created_at).toLocaleDateString()}
-                </span>
+                <span className="text-[10px] opacity-60">{formatTimestamp(t.created_at)}</span>
               </div>
               <p className="text-sm font-semibold truncate">{t.subject || t.description.slice(0, 60)}</p>
             </button>
@@ -175,7 +241,7 @@ export default function SupportTriagePage() {
 
         {selected && (
           <div className="max-w-3xl">
-            <div className="flex justify-between items-start mb-4">
+            <div className="flex justify-between items-start mb-1">
               <div>
                 <h3 className="text-xl font-black mb-1">{selected.subject || 'Untitled ticket'}</h3>
                 <span className="text-xs font-bold uppercase border-2 border-black rounded px-2 py-0.5">
@@ -186,6 +252,14 @@ export default function SupportTriagePage() {
                 )}
               </div>
             </div>
+
+            <p className="text-xs text-gray-500 mb-5">
+              Submitted {formatTimestamp(selected.created_at)}
+              {selected.updated_at && selected.updated_at !== selected.created_at && (
+                <> · Last updated {formatTimestamp(selected.updated_at)}</>
+              )}
+              {selected.resolved_at && <> · Resolved {formatTimestamp(selected.resolved_at)}</>}
+            </p>
 
             <Section title="User description">
               <p className="text-sm whitespace-pre-wrap">{selected.description}</p>
@@ -200,7 +274,13 @@ export default function SupportTriagePage() {
             )}
 
             {selected.ai_reply && (
-              <Section title="AI reply (sent to user)">
+              <Section
+                title={
+                  selected.resolved_at
+                    ? `AI reply (sent to user ${formatTimestamp(selected.resolved_at)})`
+                    : 'AI reply (sent to user)'
+                }
+              >
                 <p className="text-sm whitespace-pre-wrap">{selected.ai_reply}</p>
               </Section>
             )}

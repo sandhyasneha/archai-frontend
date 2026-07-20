@@ -9,6 +9,19 @@ const STATUS_LABEL: Record<string, string> = {
   rejected: 'Rejected',
 };
 
+// Full date + time so users can tell exactly when they submitted something
+// and when they got a reply, not just the day.
+function formatTimestamp(iso: string | null): string {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString(undefined, {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 interface Ticket {
   id: string;
   subject: string | null;
@@ -37,15 +50,18 @@ export default function TicketHistory({ tickets }: { tickets: Ticket[] }) {
             </span>
           </div>
 
-          <p className="text-xs text-gray-500 mb-2">
-            {new Date(t.created_at).toLocaleDateString()}
-          </p>
+          <p className="text-xs text-gray-500 mb-2">Submitted {formatTimestamp(t.created_at)}</p>
 
           <p className="text-sm text-gray-700 whitespace-pre-wrap mb-3">{t.description}</p>
 
           {t.ai_reply && (
             <div className="bg-gray-50 border border-black/20 rounded p-3 mt-2">
-              <p className="text-[10px] font-bold uppercase text-gray-500 mb-1">Reply</p>
+              <div className="flex justify-between items-center mb-1">
+                <p className="text-[10px] font-bold uppercase text-gray-500">Reply</p>
+                {t.resolved_at && (
+                  <p className="text-[10px] text-gray-400">{formatTimestamp(t.resolved_at)}</p>
+                )}
+              </div>
               <p className="text-sm whitespace-pre-wrap">{t.ai_reply}</p>
             </div>
           )}
@@ -60,7 +76,7 @@ export default function TicketHistory({ tickets }: { tickets: Ticket[] }) {
 
           {t.status === 'implemented' && (
             <p className="text-xs text-gray-500">
-              Resolved{t.resolved_at ? ` on ${new Date(t.resolved_at).toLocaleDateString()}` : ''}.
+              Resolved{t.resolved_at ? ` on ${formatTimestamp(t.resolved_at)}` : ''}.
             </p>
           )}
         </div>
