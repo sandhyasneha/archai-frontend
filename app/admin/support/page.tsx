@@ -22,7 +22,9 @@ interface Ticket {
   ai_diagnosis: string | null;
   ai_fix_summary: string | null;
   ai_fix_diff: string | null;
+  ai_setup_instructions: string | null;
   github_pr_url: string | null;
+  github_branch: string | null;
   account_context: any;
   created_at: string;
   updated_at: string | null;
@@ -230,6 +232,11 @@ export default function SupportTriagePage() {
                 <span className="text-[10px] opacity-60">{formatTimestamp(t.created_at)}</span>
               </div>
               <p className="text-sm font-semibold truncate">{t.subject || t.description.slice(0, 60)}</p>
+              {(t.status === 'fix_ready' || t.status === 'approved') && (
+                <p className="text-[10px] font-bold uppercase mt-1 opacity-80">
+                  {t.status === 'fix_ready' ? '● Code drafted — needs review' : '● PR opened — awaiting merge'}
+                </p>
+              )}
             </button>
           ))}
         </div>
@@ -297,6 +304,14 @@ export default function SupportTriagePage() {
               </Section>
             )}
 
+            {selected.ai_setup_instructions && (
+              <Section title="Setup & testing instructions">
+                <div className="bg-black text-white rounded p-4">
+                  <p className="text-sm whitespace-pre-wrap">{selected.ai_setup_instructions}</p>
+                </div>
+              </Section>
+            )}
+
             {selected.github_pr_url && (
               <Section title="Pull request">
                 <a
@@ -310,6 +325,33 @@ export default function SupportTriagePage() {
                 <p className="text-xs text-gray-500 mt-1">
                   Not merged or deployed yet — review and merge manually, then mark Implemented below.
                 </p>
+              </Section>
+            )}
+
+            {selected.github_pr_url && (
+<Section title="Code ready — checklist before merging">              
+                <div className="border-2 border-black rounded p-4 flex flex-col gap-2">
+                  <ChecklistStep n={1}>
+                    <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">
+                      git fetch origin && git checkout {selected.github_branch || '<branch>'}
+                    </code>
+                  </ChecklistStep>
+                  <ChecklistStep n={2}>
+                    Install any new dependencies noted above (if the setup instructions mention one), e.g.{' '}
+                    <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">npm install</code>
+                  </ChecklistStep>
+                  <ChecklistStep n={3}>
+                    <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">npm run build</code> and{' '}
+                    <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">npm run dev</code> — test locally
+                    using the steps above
+                  </ChecklistStep>
+                  <ChecklistStep n={4}>
+                    If it works: merge the PR on GitHub, then let Vercel auto-deploy from main (or deploy manually)
+                  </ChecklistStep>
+                  <ChecklistStep n={5}>
+                    Come back here and click <span className="font-bold">Mark Implemented</span> below
+                  </ChecklistStep>
+                </div>
               </Section>
             )}
 
@@ -363,6 +405,17 @@ function SummaryStat({ label, value }: { label: string; value: number }) {
     <div className="border border-black/30 rounded px-2 py-1.5 flex justify-between items-center">
       <span className="uppercase font-semibold opacity-70">{label}</span>
       <span className="font-black">{value}</span>
+    </div>
+  );
+}
+
+function ChecklistStep({ n, children }: { n: number; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-2.5 text-sm">
+      <span className="flex-shrink-0 w-5 h-5 rounded-full bg-black text-white text-[11px] font-bold flex items-center justify-center">
+        {n}
+      </span>
+      <span className="pt-0.5">{children}</span>
     </div>
   );
 }

@@ -56,7 +56,8 @@ const CLASSIFIER_PROMPT = `Context: You are the triage classifier for an Enterpr
 Task: Read the user's support ticket plus their account context (plan, blueprint history, recent auditor rejections, verification status). Decide whether this is:
 - "self_resolvable": explainable directly from account/plan facts (e.g. hitting a plan limit, unverified email, expected behavior) — no code is broken, nothing new needs building.
 - "bug": something in the product is actually malfunctioning and needs a code fix.
-- "- "feature_request": the user is asking for something the product doesn't do yet, a genuinely new capability, not a malfunction and not something explainable from their account facts.- "unclear": not enough information to tell; needs a human to look at it.
+- "feature_request": the user is asking for something the product doesn't do yet — a genuinely new capability, not a malfunction and not something explainable from their account facts.
+- "unclear": not enough information to tell; needs a human to look at it.
 
 Constraint: Output ONLY one of these four words, nothing else: self_resolvable, bug, feature_request, unclear`;
 
@@ -135,19 +136,29 @@ export async function draftFeatureSpec(
 
 // ---------- 4. FIX / BUILD AGENT (shared: bug fixes + feature implementations) ----------
 
-const FIX_AGENT_PROMPT = `Context: You are a senior engineer implementing a change for ArchAI, a Next.js/TypeScript + Supabase SaaS. The change may be a bug fix (correcting existing behavior) or a new feature (adding new behavior) — the diagnosis/spec text tells you which.
+const FIX_AGENT_PROMPT = `Context: You are a senior engineer implementing a change for ArchAI, a Next.js/TypeScript + Supabase SaaS (App Router, TypeScript throughout, Supabase for Postgres/Auth, deployed on Vercel). The change may be a bug fix (correcting existing behavior) or a new feature (adding new behavior) — the diagnosis/spec text tells you which.
 Task: Given the diagnosis or feature spec, and the full original content of any related file(s), produce the complete file content for each file that needs to change or be added. Do not truncate — output the ENTIRE file content for every file touched, not a diff or snippet.
+
+If no original files were provided, this is a net-new feature with nothing existing to anchor to. In that case, create appropriate new files from scratch, following these project conventions:
+- API routes: app/api/<feature>/route.ts, exporting async function GET/POST/etc, using NextRequest/NextResponse from 'next/server'.
+- Server-side Supabase access: import { createClient } from '@supabase/supabase-js', instantiated with process.env.NEXT_PUBLIC_SUPABASE_URL! and process.env.SUPABASE_SERVICE_ROLE_KEY! for privileged operations.
+- UI pages: app/<feature>/page.tsx as an async server component that checks auth via '@/lib/supabase/server' and redirects unauthenticated users to /signin, matching the pattern used across this codebase's existing pages.
+- Keep new files minimal and scoped to exactly what the spec describes — do not refactor or touch unrelated files.
+
 Constraint: Respond ONLY with a valid JSON object, no markdown fences, no commentary, in this exact shape:
 {
   "summary": "one-sentence human-readable summary of the change",
   "files": [
     { "path": "relative/path/to/file.ts", "patched_content": "...full new file content..." }
-  ]
+  ],
+ 
+"setup_instructions": "plain text instructions for the human reviewing this PR: any new npm packages to install (with the exact npm install command), any new environment variables needed (and where to add them ΓÇö Vercel + .env.local), and 2-4 concrete manual testing steps to verify the change works before merging. If nothing new is needed beyond a normal git pull, say so explicitly rather than omitting this field."
 }`;
 
 export interface FixResult {
   summary: string;
   files: Array<{ path: string; patched_content: string }>;
+  setup_instructions: string;
 }
 
 export async function draftFix(

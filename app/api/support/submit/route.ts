@@ -95,22 +95,24 @@ export async function POST(req: NextRequest) {
       .update({ ai_diagnosis: diagnosis })
       .eq('id', ticket.id);
 
-    if (relevantFiles.length === 0) {
-      // For a bug: couldn't confidently locate the affected file(s), don't
-      // fabricate a fix. For a feature request: this is expected whenever
-      // it's a genuinely new capability with no obvious existing file to
-      // anchor to. Either way, leave it at 'diagnosing' with the
-      // diagnosis/spec as a head start for a human, rather than guessing
-      // at code to write.
+    if (relevantFiles.length === 0 && category === 'bug') {
+      // Couldn't confidently locate the affected file(s) for a bug — don't
+      // fabricate a fix against code we haven't actually seen. Leave it at
+      // 'diagnosing' with the diagnosis as a head start for a human.
       return NextResponse.json({ ticketId: ticket.id, status: 'diagnosing', diagnosis });
     }
 
+    // For feature_request, proceed even with zero relevant files — a
+    // genuinely new capability often has nothing existing to anchor to,
+    // and the build agent is instructed to create appropriate new files
+    // from scratch following this codebase's conventions in that case.
     const fix = await draftFix(diagnosis, relevantFiles);
     await supabaseAdmin
       .from('support_tickets')
       .update({
         ai_fix_summary: fix.summary,
         ai_fix_files: fix.files,
+        ai_setup_instructions: fix.setup_instructions,
         status: 'fix_ready',
       })
       .eq('id', ticket.id);
