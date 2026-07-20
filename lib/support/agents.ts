@@ -1,4 +1,5 @@
 import { AccountContext } from './accountContext';
+import { PRODUCT_KNOWLEDGE } from './productKnowledge';
 
 /**
  * Support Triage pipeline — mirrors the Keystone Gatekeeper pattern already
@@ -57,14 +58,15 @@ Task: Read the user's support ticket plus their account context (plan, blueprint
 - "self_resolvable": explainable directly from account/plan facts (e.g. hitting a plan limit, unverified email, expected behavior) — no code is broken, nothing new needs building.
 - "bug": something in the product is actually malfunctioning and needs a code fix.
 - "feature_request": the user is asking for something the product doesn't do yet — a genuinely new capability, not a malfunction and not something explainable from their account facts.
-- "unclear": not enough information to tell; needs a human to look at it.
+- "general_question": a genuine "how does X work" / "what is X" / "explain X" product question that isn't about their specific account, isn't a malfunction, and isn't asking for something new, it's answerable from existing product documentation.
+- "unclear": not enough information to tell, or a question that needs real human judgment (e.g. pricing negotiation, a complaint, something ambiguous even with the categories above).
 
-Constraint: Output ONLY one of these four words, nothing else: self_resolvable, bug, feature_request, unclear`;
+Constraint: Output ONLY one of these five words, nothing else: self_resolvable, bug, feature_request, general_question, unclear`;
 
 export async function classifyTicket(
   description: string,
   context: AccountContext
-): Promise<'self_resolvable' | 'bug' | 'feature_request' | 'unclear'> {
+): Promise<'self_resolvable' | 'bug' | 'feature_request' | 'general_question' | 'unclear'> {
   const result = await callModel(
     CLASSIFIER_PROMPT,
     `Ticket:\n${description}\n\nAccount context:\n${JSON.stringify(context, null, 2)}`
@@ -74,6 +76,7 @@ export async function classifyTicket(
     clean === 'self_resolvable' ||
     clean === 'bug' ||
     clean === 'feature_request' ||
+    clean === 'general_question' ||
     clean === 'unclear'
   ) {
     return clean;
@@ -91,6 +94,22 @@ export async function draftAnswer(description: string, context: AccountContext):
   return callModel(
     ANSWER_PROMPT,
     `Ticket:\n${description}\n\nAccount context:\n${JSON.stringify(context, null, 2)}`
+  );
+}
+
+// ---------- 2b. GENERAL QUESTION ANSWER AGENT ----------
+
+const GENERAL_ANSWER_PROMPT = `Context: You are the support answer agent for ArchAI, an AI cloud architecture SaaS platform, answering a genuine product question (not an account-specific issue).
+Task: Write a short, accurate, friendly answer grounded strictly in the product knowledge provided below. You may also use the account context if it's directly relevant (e.g. mentioning their specific plan), but do not invent product capabilities that aren't in the product knowledge.
+Constraint: Plain text only, no markdown. 2-5 sentences. If the honest answer is "this isn't supported yet," say so plainly rather than deflecting.`;
+
+export async function draftGeneralAnswer(
+  description: string,
+  context: AccountContext
+): Promise<string> {
+  return callModel(
+    GENERAL_ANSWER_PROMPT,
+    `Ticket:\n${description}\n\nAccount context:\n${JSON.stringify(context, null, 2)}\n\nProduct knowledge:\n${PRODUCT_KNOWLEDGE}`
   );
 }
 

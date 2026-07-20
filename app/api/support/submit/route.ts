@@ -4,6 +4,7 @@ import { buildAccountContext } from '@/lib/support/accountContext';
 import {
   classifyTicket,
   draftAnswer,
+  draftGeneralAnswer,
   diagnoseBug,
   draftFeatureSpec,
   draftFix,
@@ -53,19 +54,23 @@ export async function POST(req: NextRequest) {
       throw new Error(insertError?.message || 'Failed to create ticket');
     }
 
-    // 2. Classify: self_resolvable | bug | feature_request | unclear
+    // 2. Classify: self_resolvable | bug | feature_request | general_question | unclear
     const category = await classifyTicket(description, context);
     const needsBuildPipeline = category === 'bug' || category === 'feature_request';
+    const needsImmediateAnswer = category === 'self_resolvable' || category === 'general_question';
     await supabaseAdmin
       .from('support_tickets')
       .update({
         category,
-        status: needsBuildPipeline ? 'diagnosing' : category === 'self_resolvable' ? 'replied' : 'received',
+        status: needsBuildPipeline ? 'diagnosing' : needsImmediateAnswer ? 'replied' : 'received',
       })
       .eq('id', ticket.id);
 
-    if (category === 'self_resolvable') {
-      const reply = await draftAnswer(description, context);
+    if (category === 'self_resolvable' || category === 'general_question') {
+      const reply =
+        category === 'self_resolvable'
+          ? await draftAnswer(description, context)
+          : await draftGeneralAnswer(description, context);
       await supabaseAdmin
         .from('support_tickets')
         .update({ ai_reply: reply, status: 'replied', resolved_at: new Date().toISOString() })

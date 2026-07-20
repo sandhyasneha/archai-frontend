@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 
-type Tab = 'overview' | 'account' | 'dashboard' | 'greenfield' | 'brownfield' | 'knowledge-base' | 'plans' | 'settings' | 'faq'
+type Tab = 'overview' | 'account' | 'dashboard' | 'greenfield' | 'brownfield' | 'knowledge-base' | 'plans' | 'settings' | 'support' | 'admin' | 'faq'
 
 const NAV: { id: Tab; label: string }[] = [
   { id: 'overview', label: 'Overview' },
@@ -14,6 +14,8 @@ const NAV: { id: Tab; label: string }[] = [
   { id: 'knowledge-base', label: 'Knowledge Base' },
   { id: 'plans', label: 'Plans & features' },
   { id: 'settings', label: 'Settings & account' },
+  { id: 'support', label: 'Support & billing' },
+  { id: 'admin', label: 'Admin guide' },
   { id: 'faq', label: 'FAQ' },
 ]
 
@@ -25,6 +27,24 @@ function Step({ num, title, children }: { num: number; title: string; children: 
         <div className="text-sm font-semibold text-black mb-1">{title}</div>
         <div className="text-sm text-gray-600 leading-relaxed">{children}</div>
       </div>
+    </div>
+  )
+}
+
+function FaqItem({ q, children }: { q: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <p className="font-medium text-black mb-1">{q}</p>
+      <p className="text-gray-700">{children}</p>
+    </div>
+  )
+}
+
+function FaqGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-4">
+      <h2 className="text-xs font-bold uppercase tracking-wide text-gray-400 mt-2">{title}</h2>
+      {children}
     </div>
   )
 }
@@ -257,30 +277,141 @@ export default function DocClient() {
             </div>
           )}
 
+          {active === 'support' && (
+            <div>
+              <h1 className="text-2xl font-semibold text-black mb-4">Support &amp; billing</h1>
+              <div className="flex flex-col gap-4 text-sm leading-relaxed text-gray-700">
+                <p>Everything about getting help, and managing your subscription, lives in one place: <strong>Settings</strong> for billing, <strong>Support</strong> for tickets.</p>
+
+                <div className="flex flex-col gap-3">
+                  <Step num={1} title="Submit a ticket">
+                    Go to <Link href="/support" className="text-black underline">Support</Link> in the sidebar, describe what&apos;s wrong, and submit. If it&apos;s something we can answer from your account directly (a plan limit, an unverified email, etc.) you&apos;ll get a reply immediately. Anything else is flagged for our team.
+                  </Step>
+                  <Step num={2} title="Track your tickets">
+                    Every ticket you&apos;ve submitted, along with its current status and any reply, stays listed on the Support page — you don&apos;t need to keep the original confirmation.
+                  </Step>
+                  <Step num={3} title="Manage billing">
+                    In Settings, under Plan &amp; billing, use &quot;Manage billing&quot; to open a secure Stripe portal where you can update your card, view invoices, change plans, or cancel.
+                  </Step>
+                  <Step num={4} title="Cancel anytime">
+                    Cancelling stops future billing but keeps your access until the end of your current billing period. Your blueprint and migration history is preserved — it isn&apos;t deleted on cancellation, though creating new ones reverts to Scout (free tier) limits once your paid period ends.
+                  </Step>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {active === 'admin' && (
+            <div>
+              <h1 className="text-2xl font-semibold text-black mb-4">Admin guide</h1>
+              <div className="flex flex-col gap-4 text-sm leading-relaxed text-gray-700">
+                <p>
+                  If you&apos;re an organisation admin, you&apos;ll see an <strong>Admin</strong> section in the sidebar automatically
+                  once signed in — no separate login required.
+                </p>
+
+                <div className="flex flex-col gap-3">
+                  <Step num={1} title="Admin panel">
+                    User signups, blueprint/migration volume, and usage/COGS monitoring across your organisation, plus the ability to manually adjust a user&apos;s plan if needed.
+                  </Step>
+                  <Step num={2} title="Support Triage">
+                    Every support ticket lands here, automatically classified as <strong>self-resolvable</strong> (already answered, informational only), <strong>bug</strong>, <strong>feature request</strong>, or <strong>unclear</strong> (needs your judgment directly — e.g. pricing negotiations). Use the status filter and date range to narrow a busy queue.
+                  </Step>
+                  <Step num={3} title="Reviewing a drafted fix or feature">
+                    For bug and feature-request tickets, you&apos;ll typically see a diagnosis or proposal, a summary of the proposed change, and setup/testing instructions (new dependencies, env vars, manual test steps) before any code is written to your repository.
+                  </Step>
+                  <Step num={4} title="Approve, Hold, or build manually">
+                    <strong>Approve</strong> opens a pull request on a new branch, it is never merged automatically. <strong>Hold</strong> parks the ticket for later without opening anything. Either way, nothing reaches your main branch or gets deployed without you reviewing and merging the PR yourself.
+                  </Step>
+                  <Step num={5} title="Mark Implemented">
+                    Once you&apos;ve tested the PR locally, merged it, and confirmed the deploy, come back and mark the ticket Implemented — this closes the loop and updates your resolved-ticket count.
+                  </Step>
+                </div>
+
+                <p className="text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-lg px-4 py-3">
+                  Nothing in Support Triage auto-deploys. Every drafted fix or feature is a proposal for you to review, test, and merge on your own judgment.
+                </p>
+              </div>
+            </div>
+          )}
+
           {active === 'faq' && (
             <div>
               <h1 className="text-2xl font-semibold text-black mb-4">FAQ</h1>
-              <div className="flex flex-col gap-4 text-sm leading-relaxed text-gray-700">
-                <div>
-                  <p className="font-medium text-black mb-1">Are the cost estimates live pricing?</p>
-                  <p>No — they&apos;re indicative ballpark estimates from standard on-demand reference pricing, not real-time vendor APIs. Always verify against your cloud provider&apos;s official pricing calculator before making a financial decision. See our <Link href="/terms" className="text-black underline">Terms of Service</Link> for details.</p>
-                </div>
-                <div>
-                  <p className="font-medium text-black mb-1">Can I deploy the generated Terraform directly to production?</p>
-                  <p>Generated output should always be independently reviewed by a qualified engineer before deployment to any live environment — see our Terms of Service for the full disclaimer.</p>
-                </div>
-                <div>
-                  <p className="font-medium text-black mb-1">Does Brownfield require my target cloud to match my current one?</p>
-                  <p>No — you can migrate from any source cloud to any target cloud (AWS, Azure, or GCP).</p>
-                </div>
-                <div>
-                  <p className="font-medium text-black mb-1">Does my ArchAI login email need to match my AWS, Azure, or GCP account?</p>
-                  <p>No. Your ArchAI sign-in is separate from your cloud provider identity. When you use 1-click Connect, access is granted at the account level — via an IAM role (AWS), an admin-consented app registration (Azure), or an IAM grant to ArchAI&apos;s service account (GCP) — by whoever has sufficient permissions in that cloud console at the time. That person doesn&apos;t need to share an email with your ArchAI account.</p>
-                </div>
-                <div>
-                  <p className="font-medium text-black mb-1">Which plan do I need for Brownfield?</p>
-                  <p>Team plan or higher.</p>
-                </div>
+              <div className="flex flex-col gap-8 text-sm leading-relaxed">
+
+                <FaqGroup title="General">
+                  <FaqItem q="Are the cost estimates live pricing?">
+                    No — they&apos;re indicative ballpark estimates from standard on-demand reference pricing, not real-time vendor APIs. Always verify against your cloud provider&apos;s official pricing calculator before making a financial decision. See our <Link href="/terms" className="text-black underline">Terms of Service</Link> for details.
+                  </FaqItem>
+                  <FaqItem q="Can I deploy the generated Terraform directly to production?">
+                    Generated output should always be independently reviewed by a qualified engineer before deployment to any live environment — see our Terms of Service for the full disclaimer.
+                  </FaqItem>
+                  <FaqItem q="Does Brownfield require my target cloud to match my current one?">
+                    No — you can migrate from any source cloud to any target cloud (AWS, Azure, or GCP).
+                  </FaqItem>
+                  <FaqItem q="Does my ArchAI login email need to match my AWS, Azure, or GCP account?">
+                    No. Your ArchAI sign-in is separate from your cloud provider identity. When you use 1-click Connect, access is granted at the account level — via an IAM role (AWS), an admin-consented app registration (Azure), or an IAM grant to ArchAI&apos;s service account (GCP) — by whoever has sufficient permissions in that cloud console at the time. That person doesn&apos;t need to share an email with your ArchAI account.
+                  </FaqItem>
+                  <FaqItem q="Which plan do I need for Brownfield?">
+                    Team plan or higher.
+                  </FaqItem>
+                </FaqGroup>
+
+                <FaqGroup title="Payments & subscription">
+                  <FaqItem q="How do I update my payment method?">
+                    Go to Settings → Plan &amp; billing → Manage billing. This opens a secure Stripe portal where you can update your card, view past invoices, or download receipts.
+                  </FaqItem>
+                  <FaqItem q="How do I upgrade or downgrade my plan?">
+                    From Settings → Plan &amp; billing, choose a new plan. Stripe prorates the difference automatically — you&apos;re not double-charged mid-cycle.
+                  </FaqItem>
+                  <FaqItem q="How do I cancel my subscription?">
+                    Settings → Plan &amp; billing → Manage billing → Cancel plan. You keep full access until the end of your current billing period; there&apos;s no immediate loss of access.
+                  </FaqItem>
+                  <FaqItem q="What happens to my blueprints if I downgrade or cancel?">
+                    Your existing blueprint and migration history is preserved and stays viewable — it isn&apos;t deleted. Creating new blueprints, however, follows whatever plan you&apos;re on going forward (e.g. Scout&apos;s 3/month, AWS-only limit once a paid plan lapses).
+                  </FaqItem>
+                  <FaqItem q="What happens if a payment fails?">
+                    Stripe automatically retries the charge. You&apos;ll get an email notification if a payment fails, and if it remains unresolved your account will eventually revert to the free Scout tier rather than being locked out entirely.
+                  </FaqItem>
+                  <FaqItem q="Where do I find an invoice or receipt?">
+                    Settings → Plan &amp; billing → Manage billing opens the Stripe Customer Portal, where every past invoice is available to view or download.
+                  </FaqItem>
+                </FaqGroup>
+
+                <FaqGroup title="Support tickets">
+                  <FaqItem q="How do I submit a support ticket?">
+                    Go to Support in the sidebar and describe what&apos;s going on. If it&apos;s something answerable from your account directly (a plan limit, verification status, etc.) you&apos;ll get a reply immediately.
+                  </FaqItem>
+                  <FaqItem q="How long does it take to hear back on a bug report or feature request?">
+                    There&apos;s no fixed SLA today — these are reviewed by our team, who may draft and ship a fix depending on complexity and priority. You can always check a ticket&apos;s current status on the Support page.
+                  </FaqItem>
+                  <FaqItem q="Can I see the status of a ticket I already submitted?">
+                    Yes — every ticket you&apos;ve submitted, along with any reply, is listed on the Support page under &quot;Your tickets.&quot;
+                  </FaqItem>
+                  <FaqItem q="What's the difference between a 'bug' and a 'feature request' ticket?">
+                    A bug means something isn&apos;t working as intended; a feature request means you&apos;re asking for a capability that doesn&apos;t exist yet. Both get reviewed by our team before anything ships — submitting either doesn&apos;t guarantee immediate action.
+                  </FaqItem>
+                </FaqGroup>
+
+                <FaqGroup title="Technical">
+                  <FaqItem q="Does ArchAI store my cloud provider credentials?">
+                    No long-lived secret keys are stored. 1-click Connect grants access via a scoped IAM role (AWS), an admin-consented app registration (Azure), or an IAM grant to ArchAI&apos;s service account (GCP) — access is controlled from your own cloud console at all times.
+                  </FaqItem>
+                  <FaqItem q="Is my generated Terraform code saved anywhere?">
+                    Yes — it&apos;s tied to your account and accessible any time from your Dashboard, so you can revisit or re-download it later.
+                  </FaqItem>
+                  <FaqItem q="Can I bring my own remote Terraform state backend (e.g. S3, Terraform Cloud)?">
+                    Not yet — this is on our roadmap. Today, generated Terraform is provided to you directly rather than applied against a remote backend we manage.
+                  </FaqItem>
+                  <FaqItem q="Is there a public API?">
+                    Not at this time. If programmatic access would be useful for your team, let us know via a support ticket — that helps us prioritise it.
+                  </FaqItem>
+                  <FaqItem q="Do you support multi-tenant workspaces for larger teams?">
+                    This is on our roadmap but not yet available — currently each account operates as a single workspace.
+                  </FaqItem>
+                </FaqGroup>
+
               </div>
             </div>
           )}
