@@ -206,13 +206,13 @@ export default function SupportTriagePage() {
             )}
 
             {selected.ai_diagnosis && (
-              <Section title="AI diagnosis">
+              <Section title={selected.category === 'feature_request' ? 'Proposed feature spec' : 'AI diagnosis'}>
                 <p className="text-sm whitespace-pre-wrap">{selected.ai_diagnosis}</p>
               </Section>
             )}
 
             {selected.ai_fix_summary && (
-              <Section title="Proposed fix summary">
+              <Section title={selected.category === 'feature_request' ? 'Proposed implementation summary' : 'Proposed fix summary'}>
                 <p className="text-sm whitespace-pre-wrap">{selected.ai_fix_summary}</p>
               </Section>
             )}

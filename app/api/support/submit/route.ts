@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { buildAccountContext } from '@/lib/support/accountContext';
-import { classifyTicket, draftAnswer, diagnoseBug, draftFix } from '@/lib/support/agents';
+import {
+  classifyTicket,
+  draftAnswer,
+  diagnoseBug,
+  draftFeatureSpec,
+  draftFix,
+} from '@/lib/support/agents';
 import { fetchRepoFiles, guessRelevantPaths } from '@/lib/github/fetchRepoFiles';
 
 const supabaseAdmin = createClient(
@@ -47,11 +53,15 @@ export async function POST(req: NextRequest) {
       throw new Error(insertError?.message || 'Failed to create ticket');
     }
 
-    // 2. Classify
+    // 2. Classify: self_resolvable | bug | feature_request | unclear
     const category = await classifyTicket(description, context);
+    const needsBuildPipeline = category === 'bug' || category === 'feature_request';
     await supabaseAdmin
       .from('support_tickets')
-      .update({ category, status: category === 'bug' ? 'diagnosing' : 'replied' })
+      .update({
+        category,
+        status: needsBuildPipeline ? 'diagnosing' : category === 'self_resolvable' ? 'replied' : 'received',
+      })
       .eq('id', ticket.id);
 
     if (category === 'self_resolvable') {
@@ -65,28 +75,33 @@ export async function POST(req: NextRequest) {
 
     if (category === 'unclear') {
       // Leave status as 'received' for a human to look at — no AI reply,
-      // no fabricated diagnosis.
-      await supabaseAdmin
-        .from('support_tickets')
-        .update({ status: 'received' })
-        .eq('id', ticket.id);
+      // no fabricated diagnosis or spec.
       return NextResponse.json({ ticketId: ticket.id, status: 'received' });
     }
 
-    // category === 'bug' -> diagnose, then draft a fix
+    // category === 'bug' or 'feature_request' -> produce a diagnosis/spec,
+    // then attempt a build (fix or new-feature implementation) if we can
+    // confidently locate relevant files.
     const relevantPaths = guessRelevantPaths(description);
     const relevantFiles = relevantPaths.length ? await fetchRepoFiles(relevantPaths) : [];
 
-    const diagnosis = await diagnoseBug(description, context, relevantFiles);
+    const diagnosis =
+      category === 'bug'
+        ? await diagnoseBug(description, context, relevantFiles)
+        : await draftFeatureSpec(description, context, relevantFiles);
+
     await supabaseAdmin
       .from('support_tickets')
       .update({ ai_diagnosis: diagnosis })
       .eq('id', ticket.id);
 
     if (relevantFiles.length === 0) {
-      // We couldn't confidently locate the affected file(s) — don't
-      // fabricate a fix. Leave it at 'diagnosing' for a human to pick up
-      // manually with the diagnosis as a head start.
+      // For a bug: couldn't confidently locate the affected file(s), don't
+      // fabricate a fix. For a feature request: this is expected whenever
+      // it's a genuinely new capability with no obvious existing file to
+      // anchor to. Either way, leave it at 'diagnosing' with the
+      // diagnosis/spec as a head start for a human, rather than guessing
+      // at code to write.
       return NextResponse.json({ ticketId: ticket.id, status: 'diagnosing', diagnosis });
     }
 

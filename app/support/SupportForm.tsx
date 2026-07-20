@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 interface SubmitResult {
@@ -11,6 +12,7 @@ interface SubmitResult {
 }
 
 export default function SupportForm({ userId }: { userId: string }) {
+  const router = useRouter();
   const [subject, setSubject] = useState('');
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -36,6 +38,9 @@ export default function SupportForm({ userId }: { userId: string }) {
       setResult(data);
       setSubject('');
       setDescription('');
+      // Re-run the server component so the ticket history list below
+      // picks up this new ticket without a manual page reload.
+      router.refresh();
     } catch (err: any) {
       setError(err.message || 'Failed to submit your ticket. Please try again.');
     } finally {
