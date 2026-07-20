@@ -34,7 +34,11 @@ export default function SupportForm({ userId }: { userId: string }) {
         body: JSON.stringify({ userId, subject, description }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+      if (!res.ok) {
+        // Never surface raw backend error text here — show a generic,
+        // friendly message regardless of what the API returned.
+        throw new Error('generic');
+      }
       setResult(data);
       setSubject('');
       setDescription('');
@@ -42,7 +46,7 @@ export default function SupportForm({ userId }: { userId: string }) {
       // picks up this new ticket without a manual page reload.
       router.refresh();
     } catch (err: any) {
-      setError(err.message || 'Failed to submit your ticket. Please try again.');
+      setError('We had trouble submitting your ticket. Please try again in a moment.');
     } finally {
       setSubmitting(false);
     }

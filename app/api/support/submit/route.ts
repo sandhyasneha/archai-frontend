@@ -106,20 +106,39 @@ export async function POST(req: NextRequest) {
     // genuinely new capability often has nothing existing to anchor to,
     // and the build agent is instructed to create appropriate new files
     // from scratch following this codebase's conventions in that case.
-    const fix = await draftFix(diagnosis, relevantFiles);
-    await supabaseAdmin
-      .from('support_tickets')
-      .update({
-        ai_fix_summary: fix.summary,
-        ai_fix_files: fix.files,
-        ai_setup_instructions: fix.setup_instructions,
-        status: 'fix_ready',
-      })
-      .eq('id', ticket.id);
+    try {
+      const fix = await draftFix(diagnosis, relevantFiles);
+      await supabaseAdmin
+        .from('support_tickets')
+        .update({
+          ai_fix_summary: fix.summary,
+          ai_fix_files: fix.files,
+          ai_setup_instructions: fix.setup_instructions,
+          status: 'fix_ready',
+        })
+        .eq('id', ticket.id);
 
-    return NextResponse.json({ ticketId: ticket.id, status: 'fix_ready', diagnosis, fix: fix.summary });
+      return NextResponse.json({ ticketId: ticket.id, status: 'fix_ready', diagnosis, fix: fix.summary });
+    } catch (fixErr: any) {
+      // The build agent's response failed to parse (most often: cut off
+      // mid-file by the token limit on an ambitious first draft). Don't
+      // let this crash the whole request or leak a parser error to the
+      // end user — the diagnosis/spec is already saved, so leave the
+      // ticket at 'diagnosing' as a safe, honest state. The admin can see
+      // the diagnosis/spec in the triage view and either resubmit for a
+      // retry or build it manually.
+      console.error('Fix drafting failed, leaving ticket at diagnosing:', fixErr);
+      await supabaseAdmin
+        .from('support_tickets')
+        .update({ status: 'diagnosing' })
+        .eq('id', ticket.id);
+      return NextResponse.json({ ticketId: ticket.id, status: 'diagnosing', diagnosis });
+    }
   } catch (err: any) {
     console.error('Support submit error:', err);
-    return NextResponse.json({ error: err.message || 'Something went wrong.' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'We had trouble processing your ticket. Please try again in a moment.' },
+      { status: 500 }
+    );
   }
 }

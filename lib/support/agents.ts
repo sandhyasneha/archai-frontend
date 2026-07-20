@@ -25,7 +25,7 @@ import { AccountContext } from './accountContext';
  * callModel() internals if you're standardized on a different provider.
  */
 
-async function callModel(system: string, user: string): Promise<string> {
+async function callModel(system: string, user: string, maxTokens = 4000): Promise<string> {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -35,7 +35,7 @@ async function callModel(system: string, user: string): Promise<string> {
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
-      max_tokens: 4000,
+      max_tokens: maxTokens,
       system,
       messages: [{ role: 'user', content: user }],
     }),
@@ -136,14 +136,14 @@ export async function draftFeatureSpec(
 
 // ---------- 4. FIX / BUILD AGENT (shared: bug fixes + feature implementations) ----------
 
-const FIX_AGENT_PROMPT = `Context: You are a senior engineer implementing a change for ArchAI, a Next.js/TypeScript + Supabase SaaS (App Router, TypeScript throughout, Supabase for Postgres/Auth, deployed on Vercel). The change may be a bug fix (correcting existing behavior) or a new feature (adding new behavior) — the diagnosis/spec text tells you which.
-Task: Given the diagnosis or feature spec, and the full original content of any related file(s), produce the complete file content for each file that needs to change or be added. Do not truncate — output the ENTIRE file content for every file touched, not a diff or snippet.
+const FIX_AGENT_PROMPT = `Context: You are a senior engineer implementing a change for ArchAI, a Next.js/TypeScript + Supabase SaaS (App Router, TypeScript throughout, Supabase for Postgres/Auth, deployed on Vercel). The change may be a bug fix (correcting existing behavior) or a new feature (adding new behavior), the diagnosis/spec text tells you which.
+Task: Given the diagnosis or feature spec, and the full original content of any related file(s), produce the complete file content for each file that needs to change or be added. Do not truncate, output the ENTIRE file content for every file touched, not a diff or snippet.
 
 If no original files were provided, this is a net-new feature with nothing existing to anchor to. In that case, create appropriate new files from scratch, following these project conventions:
 - API routes: app/api/<feature>/route.ts, exporting async function GET/POST/etc, using NextRequest/NextResponse from 'next/server'.
 - Server-side Supabase access: import { createClient } from '@supabase/supabase-js', instantiated with process.env.NEXT_PUBLIC_SUPABASE_URL! and process.env.SUPABASE_SERVICE_ROLE_KEY! for privileged operations.
 - UI pages: app/<feature>/page.tsx as an async server component that checks auth via '@/lib/supabase/server' and redirects unauthenticated users to /signin, matching the pattern used across this codebase's existing pages.
-- Keep new files minimal and scoped to exactly what the spec describes — do not refactor or touch unrelated files.
+- Keep new files minimal and scoped to exactly what the spec describes, do not refactor or touch unrelated files.
 
 Constraint: Respond ONLY with a valid JSON object, no markdown fences, no commentary, in this exact shape:
 {
@@ -151,9 +151,13 @@ Constraint: Respond ONLY with a valid JSON object, no markdown fences, no commen
   "files": [
     { "path": "relative/path/to/file.ts", "patched_content": "...full new file content..." }
   ],
- 
-"setup_instructions": "plain text instructions for the human reviewing this PR: any new npm packages to install (with the exact npm install command), any new environment variables needed (and where to add them ΓÇö Vercel + .env.local), and 2-4 concrete manual testing steps to verify the change works before merging. If nothing new is needed beyond a normal git pull, say so explicitly rather than omitting this field."
-}`;
+  "setup_instructions": "plain text instructions for the human reviewing this PR: any new npm packages to install (with the exact npm install command), any new environment variables needed and where to add them (Vercel plus .env.local), and 2-4 concrete manual testing steps to verify the change works before merging. If nothing new is needed beyond a normal git pull, say so explicitly rather than omitting this field."
+}
+
+Critical formatting rules, since this must parse as valid JSON:
+- Every newline inside "patched_content" must be the two characters backslash-n, never a literal line break. Every double-quote inside file content must be escaped with a backslash. This applies to every string value in the object.
+- Limit scope to at most 3 files for a first draft. If the full feature would reasonably need more than that, implement the smallest useful slice (e.g. one working API route plus minimal UI) and say what's deferred in "summary", do not attempt to emit 5+ large files in one response, as this risks the response being cut off mid-file and producing invalid JSON.
+- Keep each file focused and no longer than necessary. Prefer a working, minimal implementation over an exhaustive one on the first pass.`;
 
 export interface FixResult {
   summary: string;
@@ -170,8 +174,20 @@ export async function draftFix(
     .join('\n\n');
   const raw = await callModel(
     FIX_AGENT_PROMPT,
-    `Diagnosis / feature spec:\n${diagnosis}\n\nOriginal files (may be empty if creating something new):\n${filesBlock}`
+    `Diagnosis / feature spec:\n${diagnosis}\n\nOriginal files (may be empty if creating something new):\n${filesBlock}`,
+    8000 // higher budget than the default 4000 — full file contents can be long, and a response cut off mid-string produces invalid JSON
   );
   const cleaned = raw.replace(/```json|```/g, '').trim();
-  return JSON.parse(cleaned) as FixResult;
+
+  try {
+    return JSON.parse(cleaned) as FixResult;
+  } catch (err) {
+    // Surface a clear, specific error rather than a raw JSON.parse message —
+    // the caller (submit route) catches this and leaves the ticket at
+    // 'diagnosing' with the diagnosis/spec intact, rather than crashing
+    // the whole request and showing a parser error to the end user.
+    throw new Error(
+      `Fix agent returned malformed JSON (likely truncated mid-response). Raw length: ${raw.length} chars. Original error: ${(err as Error).message}`
+    );
+  }
 }
