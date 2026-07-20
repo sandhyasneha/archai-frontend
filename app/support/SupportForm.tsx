@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 
 interface SubmitResult {
   ticketId: string;
@@ -66,12 +67,17 @@ export default function SupportForm({ userId }: { userId: string }) {
           </p>
         )}
 
-        <button
-          onClick={() => setResult(null)}
-          className="mt-5 text-xs font-bold uppercase underline"
-        >
-          Submit another ticket
-        </button>
+        <div className="flex gap-5 mt-5">
+          <button
+            onClick={() => setResult(null)}
+            className="text-xs font-bold uppercase underline"
+          >
+            Submit another ticket
+          </button>
+          <Link href="/dashboard" className="text-xs font-bold uppercase underline text-gray-500">
+            Back to dashboard
+          </Link>
+        </div>
       </div>
     );
   }
