@@ -35,7 +35,7 @@ function FaqItem({ q, children }: { q: string; children: React.ReactNode }) {
   return (
     <div>
       <p className="font-medium text-black mb-1">{q}</p>
-      <p className="text-gray-700">{children}</p>
+      <div className="text-gray-700">{children}</div>
     </div>
   )
 }
@@ -355,6 +355,55 @@ export default function DocClient() {
                   </FaqItem>
                   <FaqItem q="Which plan do I need for Brownfield?">
                     Team plan or higher.
+                  </FaqItem>
+                </FaqGroup>
+
+                <FaqGroup title="Brownfield & connecting your cloud">
+                  <FaqItem q="Do I need to already have resources running in AWS, Azure, or GCP to use Brownfield?">
+                    Yes. Brownfield audits and migrates <em>existing</em> infrastructure — that&apos;s its entire purpose — so it only makes sense if you already have real infrastructure deployed somewhere. If you connect a genuinely empty cloud account, the scan correctly returns zero findings; there simply won&apos;t be anything to audit or migrate. If you&apos;re starting from scratch with nothing deployed yet, use <strong>Greenfield</strong> instead — it needs no cloud account or existing resources at all, just a plain-English description of what you want to build.
+                  </FaqItem>
+
+                  <FaqItem q="How do I connect my AWS account?">
+                    <ol className="list-decimal pl-5 flex flex-col gap-1 mt-1.5">
+                      <li>On the Brownfield page, choose <strong>Connect AWS (1-click)</strong>.</li>
+                      <li>Click <strong>Launch Stack in AWS Console</strong> — this opens a new tab with a CloudFormation stack pre-filled for you.</li>
+                      <li>Review and click <strong>Create stack</strong>, then wait for status <code className="bg-gray-100 px-1 rounded text-xs">CREATE_COMPLETE</code>.</li>
+                      <li>Open the stack&apos;s <strong>Outputs</strong> tab and copy the <code className="bg-gray-100 px-1 rounded text-xs">RoleArn</code> value.</li>
+                      <li>Back in the same ArchAI tab, paste the Role ARN and click <strong>Verify &amp; Connect</strong>.</li>
+                      <li>Once verified, click <strong>Run scan</strong> to auto-discover your resources.</li>
+                    </ol>
+                    <p className="mt-1.5 text-gray-500 text-xs">This grants ArchAI read-only, cross-account access via a scoped IAM role — no long-lived AWS keys are ever shared.</p>
+                  </FaqItem>
+
+                  <FaqItem q="How do I connect my Azure subscription?">
+                    <ol className="list-decimal pl-5 flex flex-col gap-1 mt-1.5">
+                      <li>On the Brownfield page, choose <strong>Connect Azure (1-click)</strong>.</li>
+                      <li>You&apos;ll be redirected to Microsoft to grant admin consent — sign in with an account that has permission to consent for your organisation.</li>
+                      <li>After consenting, you&apos;re redirected straight back into ArchAI, in the same tab.</li>
+                      <li>In the Azure Portal, assign the <strong>Reader</strong> role to the ArchAI app for the subscription you want scanned (consent alone doesn&apos;t grant resource access — this step does).</li>
+                      <li>Back in ArchAI, click <strong>Verify &amp; Connect</strong> to confirm the role took effect.</li>
+                      <li>Click <strong>Run scan</strong> to auto-discover your resources.</li>
+                    </ol>
+                    <p className="mt-1.5 text-gray-500 text-xs">Azure separates identity (consent) from resource access (the Reader role) — both steps are required.</p>
+                  </FaqItem>
+
+                  <FaqItem q="How do I connect my GCP project?">
+                    <ol className="list-decimal pl-5 flex flex-col gap-1 mt-1.5">
+                      <li>On the Brownfield page, choose <strong>Connect GCP (1-click)</strong>.</li>
+                      <li>ArchAI shows you its service account email address — copy it.</li>
+                      <li>In Google Cloud Console, go to <strong>IAM &amp; Admin → IAM → Grant Access</strong>, paste that email as the new principal, and assign the <strong>Viewer</strong> role.</li>
+                      <li>Back in ArchAI, enter your <strong>Project ID</strong> and click <strong>Verify &amp; Connect</strong>.</li>
+                      <li>Click <strong>Run scan</strong> to auto-discover your resources.</li>
+                    </ol>
+                    <p className="mt-1.5 text-gray-500 text-xs">GCP is the simplest of the three — no redirect, just one IAM grant to ArchAI&apos;s existing service account.</p>
+                  </FaqItem>
+
+                  <FaqItem q="Can I use Brownfield without granting live cloud access at all?">
+                    Yes — Brownfield also accepts a pasted Terraform (.tf) file, a Terraform state (.tfstate) file, or a plain-English description of your current setup, as an alternative to any of the 1-click Connect flows above.
+                  </FaqItem>
+
+                  <FaqItem q="Is my access isolated to just my own account?">
+                    Yes. Each connection (AWS role, Azure subscription, or GCP project) is tied to your specific ArchAI login, and results are only ever visible to that same account — never to other customers, regardless of which cloud provider or connect method you use.
                   </FaqItem>
                 </FaqGroup>
 
