@@ -26,7 +26,7 @@
 ]}
 </script>
 <script type="application/ld+json">
-{"@context":"https://schema.org","@type":"SoftwareApplication","name":"ArchAI","description":"AI-powered cloud architect that generates production-ready Terraform code for AWS, Azure, and GCP.","url":"https://arch.nexplan.io","applicationCategory":"BusinessApplication","offers":[{"@type":"Offer","name":"Scout","price":"0","priceCurrency":"USD"},{"@type":"Offer","name":"Pro","price":"49","priceCurrency":"USD"},{"@type":"Offer","name":"Team","price":"199","priceCurrency":"USD"},{"@type":"Offer","name":"Enterprise","price":"1500","priceCurrency":"USD"}],"publisher":{"@type":"Organization","name":"NexPlan IT LLC","url":"https://nexplanit.com"}}
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"ArchAI","description":"AI-powered cloud architect that generates production-ready Terraform code for AWS, Azure, and GCP.","url":"https://arch.nexplan.io","applicationCategory":"BusinessApplication","offers":[{"@type":"Offer","name":"Scout","price":"0","priceCurrency":"USD"},{"@type":"Offer","name":"Pro","price":"49","priceCurrency":"USD"},{"@type":"Offer","name":"Team","price":"199","priceCurrency":"USD"},{"@type":"Offer","name":"Momentum","price":"499","priceCurrency":"USD"},{"@type":"Offer","name":"Enterprise","price":"1500","priceCurrency":"USD"}],"publisher":{"@type":"Organization","name":"NexPlan IT LLC","url":"https://nexplanit.com"}}
 </script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -163,7 +163,7 @@ section{padding:96px 0}
 .cloud-feat::before{content:'→';color:rgba(255,255,255,.25);flex-shrink:0}
 
 /* PRICING */
-.price-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:56px}
+.price-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-top:56px}
 .price-card{border:1px solid var(--gray-10);border-radius:14px;padding:28px;display:flex;flex-direction:column;background:white;position:relative;transition:transform .2s}
 .price-card:hover{transform:translateY(-3px)}
 .price-card.pop{border-color:var(--black);border-width:2px}
@@ -721,6 +721,19 @@ footer nav.footer-links{position:static !important;display:flex !important;flex-
         <a href="/register" class="plan-btn plan-btn-light">Start Team</a>
       </div>
       <div class="price-card">
+        <div class="plan-name">Momentum</div>
+        <div class="plan-price"><sup>$</sup>499<sub>/mo</sub></div>
+        <div class="plan-tagline">For scaling teams not ready for enterprise procurement</div>
+        <ul class="plan-feats">
+          <li class="plan-feat"><span class="pf-check">✓</span>500 blueprints/month</li>
+          <li class="plan-feat"><span class="pf-check">✓</span>All clouds + Brownfield scan</li>
+          <li class="plan-feat"><span class="pf-check">✓</span>SSO/SAML + Audit logs</li>
+          <li class="plan-feat"><span class="pf-check">✓</span>Policy-as-Code scanning</li>
+          <li class="plan-feat"><span class="pf-check">✓</span>Next-business-day support SLA</li>
+        </ul>
+        <a href="/register" class="plan-btn plan-btn-light">Start Momentum</a>
+      </div>
+      <div class="price-card">
         <div class="plan-name">Enterprise</div>
         <div class="plan-price"><sup>$</sup>1,500<sub>/mo</sub></div>
         <div class="plan-tagline">For regulated industries &amp; BFSI</div>
@@ -878,6 +891,7 @@ footer nav.footer-links{position:static !important;display:flex !important;flex-
             <option value="">Select a plan</option>
             <option value="pro">Pro — $49/mo</option>
             <option value="team">Team — $199/mo</option>
+            <option value="momentum">Momentum - $499/mo</option>
             <option value="enterprise">Enterprise — $1,500/mo</option>
             <option value="custom">Custom / Not sure yet</option>
           </select>

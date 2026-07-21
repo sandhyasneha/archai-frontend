@@ -249,6 +249,13 @@ export default function DocClient() {
                         <td className="py-2.5 px-3">All clouds</td>
                         <td className="py-2.5 px-3"><strong>Brownfield migration</strong>, policy-as-code scanning, project versioning, priority Slack support</td>
                       </tr>
+                      <tr className="border-b border-gray-50">
+                        <td className="py-2.5 px-3 font-medium text-black">Momentum</td>
+                        <td className="py-2.5 px-3">$499/mo</td>
+                        <td className="py-2.5 px-3">500</td>
+                        <td className="py-2.5 px-3">All clouds</td>
+                        <td className="py-2.5 px-3">Everything in Team, plus <strong>SSO/SAML</strong>, <strong>audit logs</strong>, and next-business-day support SLA</td>
+                      </tr>
                       <tr>
                         <td className="py-2.5 px-3 font-medium text-black">Enterprise</td>
                         <td className="py-2.5 px-3">$1,500/mo</td>

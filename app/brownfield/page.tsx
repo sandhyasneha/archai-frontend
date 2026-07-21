@@ -22,7 +22,7 @@ export default async function BrownfieldPage() {
     .single()
 
   const plan = subscription?.plans as { name: string } | null
-  const isPlanAllowed = plan ? ['team', 'enterprise'].includes(plan.name) : false
+  const isPlanAllowed = plan ? ['team', 'momentum', 'enterprise'].includes(plan.name) : false
 
   const displayName = user.user_metadata?.full_name || user.email?.split('@')[0] || ''
   const initials = displayName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
